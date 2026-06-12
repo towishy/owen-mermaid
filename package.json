@@ -1,0 +1,26 @@
+{
+  "name": "owen-mermaid",
+  "version": "0.1.0",
+  "description": "Zoom, edit, and export Mermaid SVG diagrams in Obsidian.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "version": "node version-bump.mjs && git add manifest.json versions.json"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "mermaid",
+    "svg"
+  ],
+  "author": "towishy",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.28.1",
+    "obsidian": "latest",
+    "typescript": "^5.5.4"
+  }
+}
