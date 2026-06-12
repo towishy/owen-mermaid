@@ -68,7 +68,7 @@ export async function svgToImageBlob(svg: SVGSVGElement, format: ExportFormat, s
         canvasHeight = Math.floor(canvasHeight * downscale);
       }
 
-      const canvas = document.createElement("canvas");
+      const canvas = svg.ownerDocument.createElement("canvas");
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
       const context = canvas.getContext("2d");
@@ -222,7 +222,14 @@ function formatFilename(template: string, source: ExportFilenameContext | string
     .replace(/\{\{scale\}\}/g, String(scale))
     .replace(/\{\{date\}\}/g, date)
     .replace(/\{\{time\}\}/g, time);
-  return base.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-").replace(/\s+/g, " ").trim() || `mermaid-diagram-${Date.now()}`;
+  return sanitizeFilename(base).replace(/\s+/g, " ").trim() || `mermaid-diagram-${Date.now()}`;
+}
+
+function sanitizeFilename(value: string): string {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || /[<>:"/\\|?*]/.test(character) ? "-" : character;
+  }).join("");
 }
 
 function normalizeFilenameContext(source: ExportFilenameContext | string): ExportFilenameContext {

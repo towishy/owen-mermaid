@@ -516,7 +516,7 @@ function edgeStyleFromToken(token: string): DiagramEdge["style"] {
 }
 
 function sanitizeLabel(label: string): string {
-  return label.replace(/[\r\n\[\]{}]/g, " ").replace(/\s+/g, " ").trim() || "Untitled";
+  return label.replace(/[\r\n[\]{}]/g, " ").replace(/\s+/g, " ").trim() || "Untitled";
 }
 
 function sanitizeStateLabel(label: string): string {

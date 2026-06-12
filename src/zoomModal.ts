@@ -58,7 +58,8 @@ export class MermaidZoomModal extends Modal {
     this.contentWrapper.appendChild(clone);
 
     this.bindStage(stage);
-    requestAnimationFrame(() => this.fitToStage());
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    win.requestAnimationFrame(() => this.fitToStage());
   }
 
   onClose(): void {

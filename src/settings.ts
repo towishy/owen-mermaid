@@ -123,7 +123,6 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
         slider
           .setLimits(0.1, 1, 0.05)
           .setValue(this.plugin.settings.imageQuality)
-          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.imageQuality = value;
             await this.plugin.saveSettings();
@@ -137,7 +136,6 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
         slider
           .setLimits(1, 4, 1)
           .setValue(this.plugin.settings.exportScale)
-          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.exportScale = value;
             await this.plugin.saveSettings();
@@ -170,7 +168,6 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
         slider
           .setLimits(0.05, 0.4, 0.05)
           .setValue(this.plugin.settings.zoomStep)
-          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.zoomStep = value;
             await this.plugin.saveSettings();

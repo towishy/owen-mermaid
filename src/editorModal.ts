@@ -3,7 +3,6 @@ import { cloneDiagram, createEdge, createNode, generateFlowchart, parseFlowchart
 import { ensureLiquidGlassFilter } from "./liquidGlass";
 import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeStyle, FlowDiagram, FlowDirection, MermaidRenderedLayout, NodeShape } from "./types";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
 const BASE_CANVAS_WIDTH = 980;
 const BASE_CANVAS_HEIGHT = 680;
 const CANVAS_PADDING = 220;
@@ -1644,7 +1643,8 @@ class MermaidTextEditModal extends Modal {
       if (event.key === "Escape") this.close();
     });
 
-    requestAnimationFrame(() => {
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    win.requestAnimationFrame(() => {
       input.focus();
       input.select();
     });
