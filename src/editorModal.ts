@@ -45,6 +45,10 @@ const DEFAULT_NODE_FILL_COLOR = "#ffffff";
 const DEFAULT_NODE_STROKE_COLOR = "#94a3b8";
 const DEFAULT_TEXT_COLOR = "#172033";
 const DEFAULT_EDGE_STROKE_COLOR = "#64748b";
+const DEFAULT_NODE_STROKE_WIDTH = 1.4;
+const DEFAULT_EDGE_STROKE_WIDTH = 2;
+const DEFAULT_NODE_TEXT_SIZE = 13;
+const DEFAULT_EDGE_TEXT_SIZE = 13;
 
 interface ResizeState {
   nodeId: string;
@@ -131,6 +135,8 @@ export class MermaidEditorModal extends Modal {
   private colorTargetSelect?: HTMLSelectElement;
   private colorInput?: HTMLInputElement;
   private colorResetButton?: HTMLButtonElement;
+  private colorClearButton?: HTMLButtonElement;
+  private colorApplySimilarButton?: HTMLButtonElement;
   private readonly colorTargetButtons = new Map<ColorTarget, HTMLButtonElement>();
   private readonly selectedNodeIds = new Set<string>();
   private preserveNodeSelection = false;
@@ -460,6 +466,14 @@ export class MermaidEditorModal extends Modal {
     setIcon(this.colorResetButton, "rotate-ccw");
     this.colorResetButton.addEventListener("click", () => this.applySelectedColor(this.colorTarget, undefined));
 
+    this.colorClearButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: "Clear selected styling", "aria-label": "Clear selected styling" } });
+    setIcon(this.colorClearButton, "eraser");
+    this.colorClearButton.addEventListener("click", () => this.clearSelectedStyling());
+
+    this.colorApplySimilarButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: "Apply styling to same type", "aria-label": "Apply styling to same type" } });
+    setIcon(this.colorApplySimilarButton, "copy-check");
+    this.colorApplySimilarButton.addEventListener("click", () => this.applyStyleToSimilarItems());
+
     this.colorTargetButtons.clear();
     const targetIcons = parent.createDiv({ cls: "owen-mermaid-color-target-icons" });
     for (const target of COLOR_TARGETS) {
@@ -496,6 +510,8 @@ export class MermaidEditorModal extends Modal {
     this.colorInput.value = color;
     this.colorInput.disabled = !enabled;
     this.colorResetButton.disabled = !enabled || !this.getSelectedColor(this.colorTarget);
+    if (this.colorClearButton) this.colorClearButton.disabled = !enabled || !this.selectionHasStyling();
+    if (this.colorApplySimilarButton) this.colorApplySimilarButton.disabled = !enabled || !this.selectionHasStyling();
     for (const target of COLOR_TARGETS) {
       const button = this.colorTargetButtons.get(target.value);
       if (!button) continue;
@@ -546,6 +562,17 @@ export class MermaidEditorModal extends Modal {
     return DEFAULT_TEXT_COLOR;
   }
 
+  private selectionHasStyling(): boolean {
+    const selection = this.editorSelection;
+    if (!selection) return false;
+    if (selection.kind === "node") {
+      const nodes = this.selectedNodeIds.size > 1 ? this.selectedNodes() : this.diagram.nodes.filter((node) => node.id === selection.id);
+      return nodes.some((node) => Boolean(node.fillColor || node.strokeColor || node.textColor || node.strokeWidth || node.textSize));
+    }
+    const item = selection.kind === "edge" ? this.diagram.edges.find((edge) => edge.id === selection.id) : this.diagram.freeLines.find((line) => line.id === selection.id);
+    return Boolean(item && (item.strokeColor || item.textColor || item.strokeWidth || item.textSize));
+  }
+
   private applySelectedColor(target: ColorTarget, color: string | undefined): void {
     const normalized = color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined;
     const selection = this.editorSelection;
@@ -569,6 +596,69 @@ export class MermaidEditorModal extends Modal {
     this.recordHistory();
     if (target === "edgeStroke") item.strokeColor = normalized;
     if (target === "edgeText") item.textColor = normalized;
+    this.render();
+  }
+
+  private clearSelectedStyling(): void {
+    const selection = this.editorSelection;
+    if (!selection) return;
+    this.recordHistory();
+    if (selection.kind === "node") {
+      const nodes = this.selectedNodeIds.size > 1 ? this.selectedNodes() : this.diagram.nodes.filter((node) => node.id === selection.id);
+      for (const node of nodes) {
+        node.fillColor = undefined;
+        node.strokeColor = undefined;
+        node.textColor = undefined;
+        node.strokeWidth = undefined;
+        node.textSize = undefined;
+      }
+    } else {
+      const item = selection.kind === "edge" ? this.diagram.edges.find((edge) => edge.id === selection.id) : this.diagram.freeLines.find((line) => line.id === selection.id);
+      if (!item) return;
+      item.strokeColor = undefined;
+      item.textColor = undefined;
+      item.strokeWidth = undefined;
+      item.textSize = undefined;
+    }
+    this.render();
+  }
+
+  private applyStyleToSimilarItems(): void {
+    const selection = this.editorSelection;
+    if (!selection) return;
+    this.recordHistory();
+    if (selection.kind === "node") {
+      const source = this.diagram.nodes.find((node) => node.id === selection.id);
+      if (!source) return;
+      for (const node of this.diagram.nodes) {
+        if (node === source || node.shape !== source.shape) continue;
+        node.fillColor = source.fillColor;
+        node.strokeColor = source.strokeColor;
+        node.textColor = source.textColor;
+        node.strokeWidth = source.strokeWidth;
+        node.textSize = source.textSize;
+      }
+    } else if (selection.kind === "edge") {
+      const source = this.diagram.edges.find((edge) => edge.id === selection.id);
+      if (!source) return;
+      for (const edge of this.diagram.edges) {
+        if (edge === source || edge.style !== source.style) continue;
+        edge.strokeColor = source.strokeColor;
+        edge.textColor = source.textColor;
+        edge.strokeWidth = source.strokeWidth;
+        edge.textSize = source.textSize;
+      }
+    } else {
+      const source = this.diagram.freeLines.find((line) => line.id === selection.id);
+      if (!source) return;
+      for (const line of this.diagram.freeLines) {
+        if (line === source || line.style !== source.style) continue;
+        line.strokeColor = source.strokeColor;
+        line.textColor = source.textColor;
+        line.strokeWidth = source.strokeWidth;
+        line.textSize = source.textSize;
+      }
+    }
     this.render();
   }
 
@@ -654,7 +744,7 @@ export class MermaidEditorModal extends Modal {
       const selected = this.isNodeSelected(node.id);
       const lifeline = participants.createSvg("line", {
         cls: "owen-mermaid-sequence-lifeline",
-        attr: { x1: String(node.x), y1: String(SEQUENCE_TOP_Y + node.height / 2), x2: String(node.x), y2: String(bottomY - node.height / 2), ...(node.strokeColor ? { style: `stroke: ${node.strokeColor}` } : {}) },
+        attr: { x1: String(node.x), y1: String(SEQUENCE_TOP_Y + node.height / 2), x2: String(node.x), y2: String(bottomY - node.height / 2), ...this.strokeStyleAttrs(node.strokeColor, node.strokeWidth) },
       });
       if (selected) lifeline.addClass("is-selected");
       lifeline.addEventListener("click", (event) => {
@@ -704,7 +794,7 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("contextmenu", (event) => this.showNodeMenu(event, node));
     group.addEventListener("dblclick", () => this.promptNodeLabel(node));
     group.createSvg("rect", { attr: { x: String(-node.width / 2), y: String(-node.height / 2), width: String(node.width), height: String(node.height), rx: "7", ...this.nodeStyleAttrs(node) } });
-    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor) } }).setText(node.label);
+    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor, node.textSize) } }).setText(node.label);
   }
 
   private renderSequenceMessage(parent: SVGGElement, edge: DiagramEdge): void {
@@ -724,9 +814,9 @@ export class MermaidEditorModal extends Modal {
     if (selected) group.addClass("is-selected");
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: `M ${startX} ${y} L ${endX} ${y}`, fill: "none" } });
     const markerId = edge.strokeColor ? this.createArrowMarker(edge.strokeColor) : "owen-mermaid-arrow";
-    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: `M ${startX} ${y} L ${endX} ${y}`, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor), "marker-end": `url(#${markerId})` } });
+    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: `M ${startX} ${y} L ${endX} ${y}`, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor, edge.strokeWidth), "marker-end": `url(#${markerId})` } });
     group
-      .createSvg("text", { cls: "owen-mermaid-sequence-message-label", attr: { x: String(labelX), y: String(y - 16), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor) } })
+      .createSvg("text", { cls: "owen-mermaid-sequence-message-label", attr: { x: String(labelX), y: String(y - 16), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor, edge.textSize) } })
       .setText(edge.label);
     group.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -776,7 +866,7 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("dblclick", () => this.promptNodeLabel(node));
 
     this.createShape(group, node);
-    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor) } }).setText(node.label);
+    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor, node.textSize) } }).setText(node.label);
     if (selected || connectingSource || connectTarget) this.renderNodeHandles(group, node, connectTarget ? this.connectTargetHandle : undefined, !connectTarget);
   }
 
@@ -801,16 +891,19 @@ export class MermaidEditorModal extends Modal {
     const styles = [
       node.fillColor ? `fill: ${node.fillColor}` : "",
       node.strokeColor ? `stroke: ${node.strokeColor}` : "",
+      node.strokeWidth ? `stroke-width: ${node.strokeWidth}` : "",
     ].filter(Boolean);
     return styles.length > 0 ? { style: styles.join("; ") } : {};
   }
 
-  private strokeStyleAttrs(color: string | undefined): Record<string, string> {
-    return color ? { style: `stroke: ${color}` } : {};
+  private strokeStyleAttrs(color: string | undefined, width?: number): Record<string, string> {
+    const styles = [color ? `stroke: ${color}` : "", width ? `stroke-width: ${width}` : ""].filter(Boolean);
+    return styles.length > 0 ? { style: styles.join("; ") } : {};
   }
 
-  private textStyleAttrs(color: string | undefined): Record<string, string> {
-    return color ? { style: `fill: ${color}` } : {};
+  private textStyleAttrs(color: string | undefined, size?: number): Record<string, string> {
+    const styles = [color ? `fill: ${color}` : "", size ? `font-size: ${size}px` : ""].filter(Boolean);
+    return styles.length > 0 ? { style: styles.join("; ") } : {};
   }
 
   private createArrowMarker(color: string, id = `owen-mermaid-arrow-${color.replace(/[^0-9a-f]/gi, "").toLowerCase()}`): string {
@@ -905,7 +998,7 @@ export class MermaidEditorModal extends Modal {
     const path = edge.renderedPath ?? this.createConnectorPath(endpoints.from, endpoints.to, edge.route);
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: path, fill: "none" } });
     const markerId = edge.strokeColor ? this.createArrowMarker(edge.strokeColor) : "owen-mermaid-arrow";
-    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor), ...(edge.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
+    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor, edge.strokeWidth), ...(edge.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
     group.addEventListener("click", (event) => {
       event.stopPropagation();
       this.setSelectedShapeTool(undefined);
@@ -915,7 +1008,7 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("contextmenu", (event) => this.showEdgeMenu(event, edge));
     if (edge.label) {
       const label = this.getLabelPoint(endpoints.from, endpoints.to, edge.labelOffsetX, edge.labelOffsetY);
-      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor) } });
+      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor, edge.textSize) } });
       text.setText(edge.label);
       text.addEventListener("pointerdown", (event) => this.beginLabelDrag("edge", edge.id, event));
     }
@@ -934,10 +1027,10 @@ export class MermaidEditorModal extends Modal {
     if (selected) group.addClass("is-selected");
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: path, fill: "none" } });
     const markerId = line.strokeColor ? this.createArrowMarker(line.strokeColor) : "owen-mermaid-arrow";
-    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(line.strokeColor), ...(line.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
+    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(line.strokeColor, line.strokeWidth), ...(line.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
     if (line.label) {
       const label = this.getLabelPoint({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.labelOffsetX, line.labelOffsetY);
-      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(line.textColor) } });
+      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(line.textColor, line.textSize) } });
       text.setText(line.label);
       text.addEventListener("pointerdown", (event) => this.beginLabelDrag("freeLine", line.id, event));
     }
@@ -970,12 +1063,14 @@ export class MermaidEditorModal extends Modal {
     if (!this.inspector) return;
     this.inspector.empty();
     this.inspector.createEl("div", { cls: "owen-mermaid-section-title", text: "Inspector" });
+    this.renderRenderSummary(this.inspector);
 
     if (!this.editorSelection) {
       this.renderConnectControls(this.inspector);
       this.inspector.createEl("p", { cls: "owen-mermaid-empty-state", text: "Select a node or connector." });
       this.renderUnsupportedSummary(this.inspector);
       this.renderCodePreview(this.inspector);
+      this.renderChangeSummary(this.inspector);
       this.renderSourceDiff(this.inspector);
       return;
     }
@@ -994,7 +1089,29 @@ export class MermaidEditorModal extends Modal {
 
     this.renderUnsupportedSummary(this.inspector);
     this.renderCodePreview(this.inspector);
+    this.renderChangeSummary(this.inspector);
     this.renderSourceDiff(this.inspector);
+  }
+
+  private renderRenderSummary(parent: HTMLElement): void {
+    const box = parent.createDiv({ cls: "owen-mermaid-render-summary" });
+    box.createSpan({ cls: "owen-mermaid-syntax-badge", text: this.diagram.syntax });
+    const text = this.renderSupportText();
+    box.createSpan({ text });
+  }
+
+  private renderSupportText(): string {
+    if (this.diagram.syntax === "flowchart") return "Shapes, text, connectors, colors, and basic styles render in Mermaid; manual layout is stored as editor metadata.";
+    if (this.diagram.syntax === "stateDiagram") return "State labels and colors render in Mermaid; manual layout is stored as editor metadata.";
+    return "Participants and messages render in Mermaid; manual layout and most visual styling are editor metadata.";
+  }
+
+  private renderChangeSummary(parent: HTMLElement): void {
+    const items = this.createChangeSummary();
+    if (items.length === 0) return;
+    parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Summary" });
+    const list = parent.createEl("ul", { cls: "owen-mermaid-change-summary" });
+    for (const item of items) list.createEl("li", { text: item });
   }
 
   private renderUnsupportedSummary(parent: HTMLElement): void {
@@ -1029,6 +1146,19 @@ export class MermaidEditorModal extends Modal {
       this.recordHistory();
       node.shape = shape.value as NodeShape;
       this.render();
+    });
+
+    this.createNumberField(parent, "Border width", node.strokeWidth, DEFAULT_NODE_STROKE_WIDTH, 0.5, 10, 0.5, (value) => {
+      node.strokeWidth = value;
+      this.renderCanvas();
+      this.updateCodePreview();
+      this.updateColorControls();
+    });
+    this.createNumberField(parent, "Text size", node.textSize, DEFAULT_NODE_TEXT_SIZE, 8, 32, 1, (value) => {
+      node.textSize = value;
+      this.renderCanvas();
+      this.updateCodePreview();
+      this.updateColorControls();
     });
 
     this.createDangerButton(parent, "Delete node", () => this.deleteNode(node.id));
@@ -1075,6 +1205,19 @@ export class MermaidEditorModal extends Modal {
       this.render();
     });
 
+    this.createNumberField(parent, "Line width", edge.strokeWidth, edge.style === "thick" ? 4 : DEFAULT_EDGE_STROKE_WIDTH, 0.5, 12, 0.5, (value) => {
+      edge.strokeWidth = value;
+      this.renderCanvas();
+      this.updateCodePreview();
+      this.updateColorControls();
+    });
+    this.createNumberField(parent, "Label size", edge.textSize, DEFAULT_EDGE_TEXT_SIZE, 8, 32, 1, (value) => {
+      edge.textSize = value;
+      this.renderCanvas();
+      this.updateCodePreview();
+      this.updateColorControls();
+    });
+
     this.createActionButton(parent, "Reset label position", () => {
       this.recordHistory();
       edge.labelOffsetX = 0;
@@ -1108,6 +1251,19 @@ export class MermaidEditorModal extends Modal {
       this.recordHistory();
       line.route = route.value as EdgeRoute;
       this.render();
+    });
+
+    this.createNumberField(parent, "Line width", line.strokeWidth, line.style === "thick" ? 4 : DEFAULT_EDGE_STROKE_WIDTH, 0.5, 12, 0.5, (value) => {
+      line.strokeWidth = value;
+      this.renderCanvas();
+      this.updateCodePreview();
+      this.updateColorControls();
+    });
+    this.createNumberField(parent, "Label size", line.textSize, DEFAULT_EDGE_TEXT_SIZE, 8, 32, 1, (value) => {
+      line.textSize = value;
+      this.renderCanvas();
+      this.updateCodePreview();
+      this.updateColorControls();
     });
 
     this.createActionButton(parent, "Reset label position", () => {
@@ -1193,6 +1349,24 @@ export class MermaidEditorModal extends Modal {
     input.addEventListener("change", () => {
       if (!live) recordOnce();
       onChange(input.value.trim());
+    });
+  }
+
+  private createNumberField(parent: HTMLElement, label: string, value: number | undefined, placeholder: number, min: number, max: number, step: number, onChange: (value: number | undefined) => void): void {
+    const wrapper = parent.createDiv({ cls: "owen-mermaid-field" });
+    wrapper.createEl("label", { text: label });
+    const input = wrapper.createEl("input", { attr: { type: "number", min: String(min), max: String(max), step: String(step), placeholder: String(placeholder) } });
+    input.value = value === undefined ? "" : String(value);
+    let recorded = false;
+    const recordOnce = () => {
+      if (recorded) return;
+      recorded = true;
+      this.recordHistory();
+    };
+    input.addEventListener("input", () => {
+      recordOnce();
+      const nextValue = input.value.trim() === "" ? undefined : this.clamp(Number(input.value), min, max);
+      onChange(Number.isFinite(nextValue) ? nextValue : undefined);
     });
   }
 
@@ -1549,6 +1723,37 @@ export class MermaidEditorModal extends Modal {
       }
     }
     return lines.join("\n");
+  }
+
+  private createChangeSummary(): string[] {
+    const previous = parseFlowchart(this.savedSource, this.diagram.direction);
+    const items: string[] = [];
+    let nodeTextChanges = 0;
+    let nodeStyleChanges = 0;
+    let layoutChanges = 0;
+    let connectorChanges = 0;
+    const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
+    for (const node of this.diagram.nodes) {
+      const before = previousNodes.get(node.id);
+      if (!before) {
+        nodeTextChanges += 1;
+        continue;
+      }
+      if (before.label !== node.label || before.shape !== node.shape) nodeTextChanges += 1;
+      if (before.fillColor !== node.fillColor || before.strokeColor !== node.strokeColor || before.textColor !== node.textColor || before.strokeWidth !== node.strokeWidth || before.textSize !== node.textSize) nodeStyleChanges += 1;
+      if (Math.round(before.x) !== Math.round(node.x) || Math.round(before.y) !== Math.round(node.y) || Math.round(before.width) !== Math.round(node.width) || Math.round(before.height) !== Math.round(node.height)) layoutChanges += 1;
+    }
+    const previousEdges = new Map(previous.edges.map((edge) => [edge.id, edge]));
+    for (const edge of this.diagram.edges) {
+      const before = previousEdges.get(edge.id);
+      if (!before || before.from !== edge.from || before.to !== edge.to || before.label !== edge.label || before.style !== edge.style || before.route !== edge.route || before.strokeColor !== edge.strokeColor || before.textColor !== edge.textColor || before.strokeWidth !== edge.strokeWidth || before.textSize !== edge.textSize) connectorChanges += 1;
+    }
+    if (nodeTextChanges > 0) items.push(`${nodeTextChanges} node text or shape change(s)`);
+    if (nodeStyleChanges > 0) items.push(`${nodeStyleChanges} node style change(s)`);
+    if (connectorChanges > 0) items.push(`${connectorChanges} connector change(s)`);
+    if (layoutChanges > 0) items.push(`${layoutChanges} editor layout change(s)`);
+    if (previous.freeLines.length !== this.diagram.freeLines.length) items.push("Free line count changed");
+    return items;
   }
 
   private hasUnsavedChanges(): boolean {
@@ -2112,7 +2317,7 @@ export class MermaidEditorModal extends Modal {
     this.minimap.empty();
     this.minimap.createSvg("rect", { cls: "owen-mermaid-minimap-bg", attr: { x: "0", y: "0", width: String(MINIMAP_WIDTH), height: String(MINIMAP_HEIGHT), rx: "8" } });
     for (const line of this.diagram.freeLines) {
-      this.minimap.createSvg("line", { cls: "owen-mermaid-minimap-line", attr: { x1: String(mapX(line.x1)), y1: String(mapY(line.y1)), x2: String(mapX(line.x2)), y2: String(mapY(line.y2)), ...this.strokeStyleAttrs(line.strokeColor) } });
+      this.minimap.createSvg("line", { cls: "owen-mermaid-minimap-line", attr: { x1: String(mapX(line.x1)), y1: String(mapY(line.y1)), x2: String(mapX(line.x2)), y2: String(mapY(line.y2)), ...this.strokeStyleAttrs(line.strokeColor, line.strokeWidth) } });
     }
     for (const node of this.diagram.nodes) {
       const rect = this.minimap.createSvg("rect", {

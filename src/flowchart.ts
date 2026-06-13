@@ -34,6 +34,8 @@ interface NodeLayoutMeta {
   fillColor?: string;
   strokeColor?: string;
   textColor?: string;
+  strokeWidth?: number;
+  textSize?: number;
 }
 
 interface EdgeLayoutMeta {
@@ -42,12 +44,22 @@ interface EdgeLayoutMeta {
   labelOffsetY?: number;
   strokeColor?: string;
   textColor?: string;
+  strokeWidth?: number;
+  textSize?: number;
 }
 
 interface LayoutMeta {
   nodes?: Record<string, NodeLayoutMeta>;
   edges?: Record<string, EdgeLayoutMeta>;
   freeLines?: DiagramFreeLine[];
+}
+
+interface VisualStyleMeta {
+  fillColor?: string;
+  strokeColor?: string;
+  textColor?: string;
+  strokeWidth?: number;
+  textSize?: number;
 }
 
 export function parseFlowchart(source: string, fallbackDirection: FlowDirection): FlowDiagram {
@@ -61,7 +73,7 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
     unsupportedLines: [],
   };
   const nodeMap = new Map<string, DiagramNode>();
-  const stateStyleClasses = new Map<string, { fillColor?: string; strokeColor?: string; textColor?: string }>();
+  const stateStyleClasses = new Map<string, VisualStyleMeta>();
   let layoutMeta: LayoutMeta | null = null;
 
   const lines = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -504,6 +516,8 @@ function applyLayoutMeta(nodes: DiagramNode[], meta: LayoutMeta | null): Diagram
       fillColor: readColor(layout.fillColor, node.fillColor),
       strokeColor: readColor(layout.strokeColor, node.strokeColor),
       textColor: readColor(layout.textColor, node.textColor),
+      strokeWidth: readStyleNumber(layout.strokeWidth, node.strokeWidth),
+      textSize: readStyleNumber(layout.textSize, node.textSize),
     };
   });
 }
@@ -519,6 +533,8 @@ function serializeLayoutMeta(diagram: FlowDiagram): string {
       ...(node.fillColor ? { fillColor: node.fillColor } : {}),
       ...(node.strokeColor ? { strokeColor: node.strokeColor } : {}),
       ...(node.textColor ? { textColor: node.textColor } : {}),
+      ...(node.strokeWidth ? { strokeWidth: node.strokeWidth } : {}),
+      ...(node.textSize ? { textSize: node.textSize } : {}),
     };
   }
   const meta: LayoutMeta = { nodes };
@@ -538,6 +554,8 @@ function applyEdgeMeta(edges: DiagramEdge[], meta: LayoutMeta | null): void {
     edge.labelOffsetY = readFiniteNumber(layout.labelOffsetY, edge.labelOffsetY ?? 0);
     edge.strokeColor = readColor(layout.strokeColor, edge.strokeColor);
     edge.textColor = readColor(layout.textColor, edge.textColor);
+    edge.strokeWidth = readStyleNumber(layout.strokeWidth, edge.strokeWidth);
+    edge.textSize = readStyleNumber(layout.textSize, edge.textSize);
   }
 }
 
@@ -549,9 +567,11 @@ function serializeEdgeMeta(edges: DiagramEdge[]): Record<string, EdgeLayoutMeta>
     const labelOffsetY = Math.round(readFiniteNumber(edge.labelOffsetY, 0));
     const strokeColor = readColor(edge.strokeColor, undefined);
     const textColor = readColor(edge.textColor, undefined);
-    const hasMeta = route !== "curve" || labelOffsetX !== 0 || labelOffsetY !== 0 || Boolean(strokeColor || textColor);
+    const strokeWidth = readStyleNumber(edge.strokeWidth, undefined);
+    const textSize = readStyleNumber(edge.textSize, undefined);
+    const hasMeta = route !== "curve" || labelOffsetX !== 0 || labelOffsetY !== 0 || Boolean(strokeColor || textColor || strokeWidth || textSize);
     if (!hasMeta) continue;
-    meta[edge.id] = { route, labelOffsetX, labelOffsetY, ...(strokeColor ? { strokeColor } : {}), ...(textColor ? { textColor } : {}) };
+    meta[edge.id] = { route, labelOffsetX, labelOffsetY, ...(strokeColor ? { strokeColor } : {}), ...(textColor ? { textColor } : {}), ...(strokeWidth ? { strokeWidth } : {}), ...(textSize ? { textSize } : {}) };
   }
   return meta;
 }
@@ -573,6 +593,8 @@ function readFreeLines(meta: LayoutMeta | null): DiagramFreeLine[] {
       labelOffsetY: readFiniteNumber(line.labelOffsetY, 0),
       strokeColor: readColor(line.strokeColor, undefined),
       textColor: readColor(line.textColor, undefined),
+      strokeWidth: readStyleNumber(line.strokeWidth, undefined),
+      textSize: readStyleNumber(line.textSize, undefined),
     }));
 }
 
@@ -584,23 +606,27 @@ function readFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function applyStateClassStyle(nodeMap: Map<string, DiagramNode>, id: string, colors: { fillColor?: string; strokeColor?: string; textColor?: string } | undefined): boolean {
-  if (!colors) return false;
+function applyStateClassStyle(nodeMap: Map<string, DiagramNode>, id: string, style: VisualStyleMeta | undefined): boolean {
+  if (!style) return false;
   const node = nodeMap.get(id) ?? ensureNode(nodeMap, id, `[${id}]`);
-  node.fillColor = colors.fillColor ?? node.fillColor;
-  node.strokeColor = colors.strokeColor ?? node.strokeColor;
-  node.textColor = colors.textColor ?? node.textColor;
+  node.fillColor = style.fillColor ?? node.fillColor;
+  node.strokeColor = style.strokeColor ?? node.strokeColor;
+  node.textColor = style.textColor ?? node.textColor;
+  node.strokeWidth = style.strokeWidth ?? node.strokeWidth;
+  node.textSize = style.textSize ?? node.textSize;
   return true;
 }
 
 function applyNodeColorStyle(nodeMap: Map<string, DiagramNode>, id: string, style: string): boolean {
   const node = nodeMap.get(id);
   if (!node) return false;
-  const colors = parseColorStyle(style, true);
-  if (!colors) return false;
-  node.fillColor = colors.fillColor ?? node.fillColor;
-  node.strokeColor = colors.strokeColor ?? node.strokeColor;
-  node.textColor = colors.textColor ?? node.textColor;
+  const visualStyle = parseColorStyle(style, true);
+  if (!visualStyle) return false;
+  node.fillColor = visualStyle.fillColor ?? node.fillColor;
+  node.strokeColor = visualStyle.strokeColor ?? node.strokeColor;
+  node.textColor = visualStyle.textColor ?? node.textColor;
+  node.strokeWidth = visualStyle.strokeWidth ?? node.strokeWidth;
+  node.textSize = visualStyle.textSize ?? node.textSize;
   return true;
 }
 
@@ -608,32 +634,43 @@ function applyEdgeColorStyle(edges: DiagramEdge[], index: number, style: string)
   if (!Number.isInteger(index) || index < 0) return false;
   const edge = edges[index];
   if (!edge) return false;
-  const colors = parseColorStyle(style, false);
-  if (!colors) return false;
-  edge.strokeColor = colors.strokeColor ?? edge.strokeColor;
-  edge.textColor = colors.textColor ?? edge.textColor;
+  const visualStyle = parseColorStyle(style, false);
+  if (!visualStyle) return false;
+  edge.strokeColor = visualStyle.strokeColor ?? edge.strokeColor;
+  edge.textColor = visualStyle.textColor ?? edge.textColor;
+  edge.strokeWidth = visualStyle.strokeWidth ?? edge.strokeWidth;
+  edge.textSize = visualStyle.textSize ?? edge.textSize;
   return true;
 }
 
-function parseColorStyle(style: string, allowFill: boolean): { fillColor?: string; strokeColor?: string; textColor?: string } | null {
-  const colors: { fillColor?: string; strokeColor?: string; textColor?: string } = {};
+function parseColorStyle(style: string, allowFill: boolean): VisualStyleMeta | null {
+  const parsed: VisualStyleMeta = {};
   const declarations = style.split(/[,;]/).map((item) => item.trim()).filter(Boolean);
   if (declarations.length === 0) return null;
   for (const declaration of declarations) {
-    const match = declaration.match(/^([A-Za-z-]+)\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?)$/i);
+    const match = declaration.match(/^([A-Za-z-]+)\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?|\d+(?:\.\d+)?(?:px)?)$/i);
     if (!match) return null;
     const property = match[1].toLowerCase();
-    const color = match[2];
-    if (property === "fill" && allowFill) colors.fillColor = color;
-    else if (property === "stroke") colors.strokeColor = color;
-    else if (property === "color") colors.textColor = color;
+    const value = match[2];
+    if (property === "fill" && allowFill && isColorValue(value)) parsed.fillColor = value;
+    else if (property === "stroke" && isColorValue(value)) parsed.strokeColor = value;
+    else if (property === "color" && isColorValue(value)) parsed.textColor = value;
+    else if (property === "stroke-width") parsed.strokeWidth = readStyleNumber(value, undefined);
+    else if (property === "font-size") parsed.textSize = readStyleNumber(value, undefined);
     else return null;
   }
-  return colors;
+  return parsed;
 }
 
 function readColor(value: unknown, fallback: string | undefined): string | undefined {
   return typeof value === "string" && isColorValue(value) ? value : fallback;
+}
+
+function readStyleNumber(value: unknown, fallback: number | undefined): number | undefined {
+  const raw = typeof value === "string" ? Number(value.replace(/px$/i, "")) : value;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return fallback;
+  const rounded = Math.round(raw * 10) / 10;
+  return rounded > 0 ? rounded : fallback;
 }
 
 function isColorValue(value: string): boolean {
@@ -648,6 +685,8 @@ function serializeFlowchartStyleLines(diagram: FlowDiagram): string[] {
       node.fillColor ? `fill:${node.fillColor}` : "",
       node.strokeColor ? `stroke:${node.strokeColor}` : "",
       node.textColor ? `color:${node.textColor}` : "",
+      node.strokeWidth ? `stroke-width:${node.strokeWidth}px` : "",
+      node.textSize ? `font-size:${node.textSize}px` : "",
     ].filter(Boolean);
     if (styles.length > 0) lines.push(`  style ${node.id} ${styles.join(",")}`);
   }
@@ -655,6 +694,8 @@ function serializeFlowchartStyleLines(diagram: FlowDiagram): string[] {
     const styles = [
       edge.strokeColor ? `stroke:${edge.strokeColor}` : "",
       edge.textColor ? `color:${edge.textColor}` : "",
+      edge.strokeWidth ? `stroke-width:${edge.strokeWidth}px` : "",
+      edge.textSize ? `font-size:${edge.textSize}px` : "",
     ].filter(Boolean);
     if (styles.length > 0) lines.push(`  linkStyle ${index} ${styles.join(",")}`);
   });
@@ -671,6 +712,8 @@ function serializeStateDiagramStyleLines(diagram: FlowDiagram): string[] {
       node.fillColor ? `fill:${node.fillColor}` : "",
       node.strokeColor ? `stroke:${node.strokeColor}` : "",
       node.textColor ? `color:${node.textColor}` : "",
+      node.strokeWidth ? `stroke-width:${node.strokeWidth}px` : "",
+      node.textSize ? `font-size:${node.textSize}px` : "",
     ].filter(Boolean);
     if (styles.length === 0) continue;
     const className = `${STATE_CLASSDEF_PREFIX}${classIndex}`;

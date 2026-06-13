@@ -83,25 +83,35 @@ test("round-trips node and connector colors", () => {
   node.fillColor = "#dbeafe";
   node.strokeColor = "#0ea5e9";
   node.textColor = "#172033";
+  node.strokeWidth = 3;
+  node.textSize = 16;
   const edge = diagram.edges[0];
   assert.ok(edge);
   edge.strokeColor = "#f43f5e";
   edge.textColor = "#8b5cf6";
-  diagram.freeLines.push({ id: "freeLine1", x1: 0, y1: 0, x2: 100, y2: 40, label: "note", style: "arrow", strokeColor: "#22c55e", textColor: "#64748b" });
+  edge.strokeWidth = 5;
+  edge.textSize = 15;
+  diagram.freeLines.push({ id: "freeLine1", x1: 0, y1: 0, x2: 100, y2: 40, label: "note", style: "arrow", strokeColor: "#22c55e", textColor: "#64748b", strokeWidth: 2.5, textSize: 12 });
 
   const output = generateFlowchart(diagram);
   assert.match(output, /"fillColor":"#dbeafe"/);
-  assert.match(output, /style A fill:#dbeafe,stroke:#0ea5e9,color:#172033/);
-  assert.match(output, /linkStyle 0 stroke:#f43f5e,color:#8b5cf6/);
+  assert.match(output, /style A fill:#dbeafe,stroke:#0ea5e9,color:#172033,stroke-width:3px,font-size:16px/);
+  assert.match(output, /linkStyle 0 stroke:#f43f5e,color:#8b5cf6,stroke-width:5px,font-size:15px/);
   assert.match(output, /"strokeColor":"#22c55e"/);
+  assert.match(output, /"strokeWidth":2.5/);
 
   const roundTrip = parseFlowchart(output, "TD");
   assert.equal(roundTrip.nodes.find((item) => item.id === "A")?.fillColor, "#dbeafe");
   assert.equal(roundTrip.nodes.find((item) => item.id === "A")?.strokeColor, "#0ea5e9");
   assert.equal(roundTrip.nodes.find((item) => item.id === "A")?.textColor, "#172033");
+  assert.equal(roundTrip.nodes.find((item) => item.id === "A")?.strokeWidth, 3);
+  assert.equal(roundTrip.nodes.find((item) => item.id === "A")?.textSize, 16);
   assert.equal(roundTrip.edges[0]?.strokeColor, "#f43f5e");
   assert.equal(roundTrip.edges[0]?.textColor, "#8b5cf6");
+  assert.equal(roundTrip.edges[0]?.strokeWidth, 5);
+  assert.equal(roundTrip.edges[0]?.textSize, 15);
   assert.equal(roundTrip.freeLines[0]?.strokeColor, "#22c55e");
+  assert.equal(roundTrip.freeLines[0]?.strokeWidth, 2.5);
 });
 
 test("normalizes quoted node labels", () => {
@@ -144,10 +154,12 @@ test("renders state diagram labels and colors as Mermaid syntax", () => {
   node.fillColor = "#dbeafe";
   node.strokeColor = "#64748b";
   node.textColor = "#172033";
+  node.strokeWidth = 2.5;
+  node.textSize = 15;
 
   const output = generateFlowchart(diagram, false);
   assert.match(output, /state "Ready state" as Ready/);
-  assert.match(output, /classDef owenMermaidState0 fill:#dbeafe,stroke:#64748b,color:#172033/);
+  assert.match(output, /classDef owenMermaidState0 fill:#dbeafe,stroke:#64748b,color:#172033,stroke-width:2.5px,font-size:15px/);
   assert.match(output, /class Ready owenMermaidState0/);
 
   const roundTrip = parseFlowchart(output, "LR");
@@ -156,4 +168,6 @@ test("renders state diagram labels and colors as Mermaid syntax", () => {
   assert.equal(roundTripNode?.fillColor, "#dbeafe");
   assert.equal(roundTripNode?.strokeColor, "#64748b");
   assert.equal(roundTripNode?.textColor, "#172033");
+  assert.equal(roundTripNode?.strokeWidth, 2.5);
+  assert.equal(roundTripNode?.textSize, 15);
 });

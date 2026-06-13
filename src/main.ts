@@ -365,6 +365,21 @@ export default class OwenMermaidPlugin extends Plugin {
     }
 
     await this.app.vault.modify(file, lines.join("\n"));
+    this.refreshRenderedMermaidBlocks(context.sourcePath);
+  }
+
+  private refreshRenderedMermaidBlocks(sourcePath?: string): void {
+    const win = window;
+    const refresh = () => {
+      for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+        const view = leaf.view as MarkdownView & { previewMode?: { rerender?: (force?: boolean) => void } };
+        if (sourcePath && view.file?.path !== sourcePath) continue;
+        view.previewMode?.rerender?.(true);
+        this.processMermaidBlocks(view.containerEl);
+      }
+    };
+    refresh();
+    for (const delay of [120, 360, 900]) win.setTimeout(refresh, delay);
   }
 
   private sourceName(context: MermaidBlockContext): string {
