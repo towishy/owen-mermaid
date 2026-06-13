@@ -1,4 +1,4 @@
-import type { DiagramEdge, DiagramFreeLine, DiagramNode, FlowDiagram, FlowDirection, NodeShape } from "./types";
+import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeRoute, FlowDiagram, FlowDirection, NodeShape } from "./types";
 
 const DIRECTION_PATTERN = /^(?:flowchart|graph)\s+(TD|LR|BT|RL)\s*$/i;
 const STATE_DIAGRAM_PATTERN = /^stateDiagram(?:-v2)?\s*$/i;
@@ -27,8 +27,15 @@ interface NodeLayoutMeta {
   height?: number;
 }
 
+interface EdgeLayoutMeta {
+  route?: EdgeRoute;
+  labelOffsetX?: number;
+  labelOffsetY?: number;
+}
+
 interface LayoutMeta {
   nodes?: Record<string, NodeLayoutMeta>;
+  edges?: Record<string, EdgeLayoutMeta>;
   freeLines?: DiagramFreeLine[];
 }
 
@@ -212,6 +219,7 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
     diagram.syntax === "sequenceDiagram" ? layoutSequenceParticipants(nodes) : layoutNodes(nodes, diagram.edges, diagram.direction),
     layoutMeta,
   );
+  applyEdgeMeta(diagram.edges, layoutMeta);
   diagram.freeLines = readFreeLines(layoutMeta);
   return diagram;
 }
@@ -467,8 +475,34 @@ function serializeLayoutMeta(diagram: FlowDiagram): string {
     };
   }
   const meta: LayoutMeta = { nodes };
+  const edges = serializeEdgeMeta(diagram.edges);
+  if (Object.keys(edges).length > 0) meta.edges = edges;
   if (diagram.freeLines.length > 0) meta.freeLines = diagram.freeLines.map((line) => ({ ...line }));
   return `${LAYOUT_META_PREFIX} ${JSON.stringify(meta)}`;
+}
+
+function applyEdgeMeta(edges: DiagramEdge[], meta: LayoutMeta | null): void {
+  if (!meta?.edges) return;
+  for (const edge of edges) {
+    const layout = meta.edges[edge.id];
+    if (!layout) continue;
+    edge.route = readEdgeRoute(layout.route, edge.route);
+    edge.labelOffsetX = readFiniteNumber(layout.labelOffsetX, edge.labelOffsetX ?? 0);
+    edge.labelOffsetY = readFiniteNumber(layout.labelOffsetY, edge.labelOffsetY ?? 0);
+  }
+}
+
+function serializeEdgeMeta(edges: DiagramEdge[]): Record<string, EdgeLayoutMeta> {
+  const meta: Record<string, EdgeLayoutMeta> = {};
+  for (const edge of edges) {
+    const route = readEdgeRoute(edge.route, "curve");
+    const labelOffsetX = Math.round(readFiniteNumber(edge.labelOffsetX, 0));
+    const labelOffsetY = Math.round(readFiniteNumber(edge.labelOffsetY, 0));
+    const hasMeta = route !== "curve" || labelOffsetX !== 0 || labelOffsetY !== 0;
+    if (!hasMeta) continue;
+    meta[edge.id] = { route, labelOffsetX, labelOffsetY };
+  }
+  return meta;
 }
 
 function readFreeLines(meta: LayoutMeta | null): DiagramFreeLine[] {
@@ -483,7 +517,14 @@ function readFreeLines(meta: LayoutMeta | null): DiagramFreeLine[] {
       y2: readFiniteNumber(line.y2, 0),
       label: typeof line.label === "string" ? line.label : "",
       style: ["line", "arrow", "dotted", "thick"].includes(line.style) ? line.style : "line",
+      route: readEdgeRoute(line.route, "curve"),
+      labelOffsetX: readFiniteNumber(line.labelOffsetX, 0),
+      labelOffsetY: readFiniteNumber(line.labelOffsetY, 0),
     }));
+}
+
+function readEdgeRoute(value: unknown, fallback: EdgeRoute | undefined): EdgeRoute | undefined {
+  return value === "curve" || value === "straight" || value === "elbow" ? value : fallback;
 }
 
 function readFiniteNumber(value: unknown, fallback: number): number {

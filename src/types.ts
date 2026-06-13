@@ -3,6 +3,7 @@ export type FlowDirection = "TD" | "LR" | "BT" | "RL";
 export type DiagramSyntax = "flowchart" | "stateDiagram" | "sequenceDiagram";
 export type NodeShape = "rectangle" | "rounded" | "stadium" | "diamond" | "circle";
 export type EdgeStyle = "line" | "arrow" | "dotted" | "thick";
+export type EdgeRoute = "curve" | "straight" | "elbow";
 
 export interface RenderedNodeLayout {
   id?: string;
@@ -47,6 +48,9 @@ export interface DiagramEdge {
   label: string;
   style: EdgeStyle;
   renderedPath?: string;
+  route?: EdgeRoute;
+  labelOffsetX?: number;
+  labelOffsetY?: number;
 }
 
 export interface DiagramFreeLine {
@@ -57,6 +61,9 @@ export interface DiagramFreeLine {
   y2: number;
   label: string;
   style: EdgeStyle;
+  route?: EdgeRoute;
+  labelOffsetX?: number;
+  labelOffsetY?: number;
 }
 
 export interface FlowDiagram {

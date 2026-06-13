@@ -34,12 +34,35 @@ Owen Mermaid is an Obsidian plugin for viewing and editing Mermaid SVG images in
 
 ## Features
 
-- Zoom rendered Mermaid SVG diagrams with a full-screen pan and zoom viewer.
-- Open a visual Mermaid editor from the SVG right-click menu.
-- Create, edit, drag, connect, and delete common flowchart nodes.
-- Save visual editor changes back to the original Mermaid code block.
-- Download rendered Mermaid SVGs as PNG or JPG.
-- Use an Owen Graphite inspired liquid glass UI for settings, diagram controls, and editor panels.
+When adding new functionality, add a new row to this table so the current feature surface stays easy to scan.
+
+| Area | Feature | Notes |
+| --- | --- | --- |
+| Rendered diagrams | Inline glass toolbar | Adds zoom, edit, and image download controls to rendered Mermaid SVG blocks. |
+| Rendered diagrams | Context menu actions | Right-click a rendered Mermaid SVG to open zoom, edit, PNG download, or JPG download actions. |
+| Zoom viewer | Full-screen pan and zoom | Opens rendered Mermaid SVGs in a large viewer with zoom controls, reset, and drag panning. |
+| Visual editor | Flowchart editing | Creates, edits, drags, resizes, duplicates, and deletes common flowchart nodes. |
+| Visual editor | Basic state and sequence editing | Parses and edits basic `stateDiagram` and `sequenceDiagram` participants, states, and messages. |
+| Visual editor | Drag-and-drop creation | Supports clicking or dragging shape tools onto the canvas. |
+| Visual editor | Connector editing | Creates, reconnects, reverses, styles, deletes, and labels connectors and free lines. |
+| Visual editor | Connector route modes | Supports curve, straight, and elbow connector routes stored in Owen Mermaid metadata. |
+| Visual editor | Draggable connector labels | Allows connector and free-line labels to be repositioned visually and preserved in metadata. |
+| Visual editor | Self connectors | Adds self-loop connectors from the node context menu. |
+| Visual editor | Multi-select nodes | Supports modifier-click node selection, group movement, group deletion, and selection-aware inspector controls. |
+| Visual editor | Alignment and distribution | Aligns selected nodes left/center/right/top/middle/bottom and distributes selected nodes horizontally or vertically. |
+| Visual editor | View navigation | Provides editor zoom, reset, fit-to-screen, center-selection, and a minimap navigator. |
+| Visual editor | Snap controls | Supports snap on/off and configurable 10/20/40 grid spacing. |
+| Visual editor | Undo and redo | Tracks editor changes across drag, resize, text, source, layout, connector, and group operations. |
+| Visual editor | Source preview and editing | Shows Mermaid source, supports explicit source editing, and applies source changes back into the visual model. |
+| Visual editor | Unsaved-change protection | Prompts before closing the editor when unapplied visual/source changes exist. |
+| Visual editor | Source diff preview | Shows a compact Mermaid source diff before applying changes. |
+| Visual editor | Preserved unsupported lines | Displays preserved unsupported Mermaid lines such as styles, classes, click handlers, link styles, and subgraph blocks. |
+| Mermaid source | Layout metadata | Persists node size/position, free lines, connector routes, and label offsets in `%% owen-mermaid` metadata. |
+| Export | Single image download | Downloads rendered Mermaid SVGs as PNG or JPG with configured scale, background, and quality. |
+| Export | Batch export | Exports every rendered Mermaid SVG in the active note to a vault folder. |
+| Export | Batch reports | Optionally writes a Markdown report for all batch exports or failures only. |
+| Settings | Export configuration | Configures format, output folder, filename template, scale, quality, and background. |
+| UI | Liquid glass design | Uses an Owen Graphite inspired liquid glass style for toolbars, settings, viewer, and editor surfaces. |
 
 ## Similar Plugin Notes
 
@@ -69,6 +92,7 @@ Keyboard shortcuts inside the editor:
 - `Delete`/`Backspace`: delete the selected item.
 - Arrow keys: move the selected node or free line.
 - `Shift` + arrow keys: move by the grid snap size.
+- `Shift`/`Ctrl`/`Cmd` + click: add or remove nodes from the current multi-selection.
 - `Escape`: cancel the active placement or connector tool.
 
 Batch export notes:

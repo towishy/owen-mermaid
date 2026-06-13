@@ -65,6 +65,17 @@ test("round-trips free line metadata", () => {
   assert.match(generateFlowchart(diagram), /"freeLines"/);
 });
 
+test("round-trips connector route and label metadata", () => {
+  const source = 'flowchart LR\n  %% owen-mermaid: {"nodes":{"A":{"x":120,"y":100},"B":{"x":320,"y":100}},"edges":{"A-B-0":{"route":"elbow","labelOffsetX":24,"labelOffsetY":-12}},"freeLines":[{"id":"freeLine1","x1":0,"y1":0,"x2":100,"y2":40,"label":"note","style":"dotted","route":"straight","labelOffsetX":8,"labelOffsetY":6}]}\n  A[Start] --> B[Next]\n';
+  const diagram = parseFlowchart(source, "TD");
+
+  assert.equal(diagram.edges[0]?.route, "elbow");
+  assert.equal(diagram.edges[0]?.labelOffsetX, 24);
+  assert.equal(diagram.freeLines[0]?.route, "straight");
+  assert.match(generateFlowchart(diagram), /"edges"/);
+  assert.match(generateFlowchart(diagram), /"labelOffsetY":-12/);
+});
+
 test("normalizes quoted node labels", () => {
   const diagram = parseFlowchart('flowchart TD\n  A["Quoted label"]\n', "LR");
 
