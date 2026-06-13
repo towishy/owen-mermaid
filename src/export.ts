@@ -1,12 +1,16 @@
 import * as fs from "fs";
 import type { App } from "obsidian";
 import { Notice } from "obsidian";
+import type { ExportFilenameContext } from "./exportPaths";
+import { formatFilename, getAvailableVaultPath, getVaultExportFolder, normalizeVaultFolderPath } from "./exportPaths";
 import type { OwenMermaidSettings } from "./settings";
 import type { ExportFormat } from "./types";
 
 const MAX_CANVAS_DIMENSION = 16384;
 const SVG_NS = "http://www.w3.org/2000/svg";
-const DEFAULT_OUTPUT_FOLDER = "exports/images";
+
+export { formatFilename, getAvailableVaultPath, getVaultExportFolder, normalizeVaultFolderPath, sanitizeFilename } from "./exportPaths";
+export type { ExportFilenameContext } from "./exportPaths";
 
 interface ElectronRemoteDialog {
   showSaveDialog(options: {
@@ -22,14 +26,6 @@ interface ElectronWindow extends Window {
       dialog?: ElectronRemoteDialog;
     };
   };
-}
-
-export interface ExportFilenameContext {
-  sourceName: string;
-  sourcePath?: string;
-  lineStart?: number;
-  heading?: string;
-  index?: number;
 }
 
 export interface VaultExportResult {
@@ -258,10 +254,6 @@ async function saveBlobToVault(blob: Blob, format: ExportFormat, settings: OwenM
   throw new Error("Vault export failed after retries");
 }
 
-export function getVaultExportFolder(settings: Pick<OwenMermaidSettings, "outputFolder">): string {
-  return normalizeVaultFolderPath(settings.outputFolder) || DEFAULT_OUTPUT_FOLDER;
-}
-
 export async function ensureVaultFolder(app: App, folder: string): Promise<void> {
   const normalized = normalizeVaultFolderPath(folder);
   if (!normalized) return;
@@ -275,20 +267,6 @@ export async function ensureVaultFolder(app: App, folder: string): Promise<void>
     } catch (error) {
       if (!(await app.vault.adapter.exists(current))) throw error;
     }
-  }
-}
-
-export async function getAvailableVaultPath(app: App, folder: string, baseName: string, extension: string): Promise<{ path: string; fileName: string }> {
-  const normalizedFolder = normalizeVaultFolderPath(folder);
-  const safeBaseName = sanitizeFilename(baseName).replace(/\s+/g, " ").trim() || "mermaid-diagram";
-  let counter = 1;
-
-  while (true) {
-    const suffix = counter === 1 ? "" : `-${counter}`;
-    const fileName = `${safeBaseName}${suffix}.${extension}`;
-    const path = normalizedFolder ? `${normalizedFolder}/${fileName}` : fileName;
-    if (!(await app.vault.adapter.exists(path))) return { path, fileName };
-    counter += 1;
   }
 }
 
@@ -309,47 +287,3 @@ export async function writeTextToAvailableVaultPath(app: App, folder: string, ba
   throw new Error("Vault text write failed after retries");
 }
 
-function normalizeVaultFolderPath(value: string): string {
-  return value
-    .replace(/\\/g, "/")
-    .split("/")
-    .map((segment) => segment.trim())
-    .filter((segment) => segment && segment !== "." && segment !== "..")
-    .join("/");
-}
-
-function formatFilename(template: string, source: ExportFilenameContext | string, format: string, scale: number): string {
-  const context = normalizeFilenameContext(source);
-  const now = new Date();
-  const date = now.toISOString().slice(0, 10);
-  const time = now.toTimeString().slice(0, 8).replace(/:/g, "");
-  const sourcePath = context.sourcePath ?? context.sourceName;
-  const rawName = sourcePath.split("/").pop() ?? context.sourceName;
-  const note = rawName.replace(/\.md$/i, "") || context.sourceName;
-  const folder = sourcePath.includes("/") ? sourcePath.split("/").slice(0, -1).join("/") : "";
-  const index = String(context.index ?? (context.lineStart === undefined ? 1 : context.lineStart + 1));
-  const base = template
-    .replace(/\{\{name\}\}/g, context.sourceName || note || "mermaid-diagram")
-    .replace(/\{\{rawName\}\}/g, rawName || context.sourceName || "mermaid-diagram")
-    .replace(/\{\{note\}\}/g, note || context.sourceName || "mermaid-diagram")
-    .replace(/\{\{folder\}\}/g, folder)
-    .replace(/\{\{heading\}\}/g, context.heading ?? "")
-    .replace(/\{\{index\}\}/g, index)
-    .replace(/\{\{format\}\}/g, format)
-    .replace(/\{\{scale\}\}/g, String(scale))
-    .replace(/\{\{date\}\}/g, date)
-    .replace(/\{\{time\}\}/g, time);
-  return sanitizeFilename(base).replace(/\s+/g, " ").trim() || `mermaid-diagram-${Date.now()}`;
-}
-
-function sanitizeFilename(value: string): string {
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    return code <= 31 || /[<>:"/\\|?*]/.test(character) ? "-" : character;
-  }).join("");
-}
-
-function normalizeFilenameContext(source: ExportFilenameContext | string): ExportFilenameContext {
-  if (typeof source === "string") return { sourceName: source || "mermaid-diagram" };
-  return { ...source, sourceName: source.sourceName || "mermaid-diagram" };
-}

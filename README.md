@@ -83,7 +83,23 @@ Batch export notes:
 npm install
 npm run dev
 npm run build
+npm test
 ```
+
+Release validation:
+
+```bash
+npm run release:check
+```
+
+Optional Obsidian smoke test:
+
+```bash
+Obsidian --remote-debugging-port=9222
+npm run test:obsidian
+```
+
+The smoke test connects to the running Obsidian app over CDP and confirms that Owen Mermaid is enabled and its commands are registered.
 
 Manual install for testing:
 

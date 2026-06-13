@@ -10,5 +10,5 @@
     "rootDir": ".",
     "sourceMap": false
   },
-  "include": ["src/flowchart.ts", "src/types.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

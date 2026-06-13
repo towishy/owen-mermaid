@@ -21,7 +21,7 @@ const SEQUENCE_MESSAGE_GAP = 62;
 const SEQUENCE_BOTTOM_PADDING = 96;
 
 type Selection = { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "freeLine"; id: string } | null;
-type ShapePlacement = { shape: NodeShape; nodeId?: string };
+type ShapePlacement = { shape: NodeShape; point?: CanvasPoint };
 type ConnectorTool = { style: EdgeStyle } | undefined;
 type CanvasPoint = { x: number; y: number };
 type ConnectionHandle = "top" | "right" | "bottom" | "left";
@@ -1647,31 +1647,23 @@ export class MermaidEditorModal extends Modal {
 
   private updateShapePlacement(event: PointerEvent): void {
     if (!this.placement || !this.canvas || !this.isPointerInsideCanvas(event)) return;
-
-    let node = this.placement.nodeId ? this.diagram.nodes.find((item) => item.id === this.placement?.nodeId) : undefined;
-    const created = !node;
-    if (!node) {
-      this.recordHistory();
-      node = createNode(this.diagram, this.placement.shape);
-      this.placement.nodeId = node.id;
-      this.selection = { kind: "node", id: node.id };
-    }
-
     const point = this.toBoundedCanvasPoint(event);
-    const snapped = this.snapPoint(point);
-    node.x = snapped.x;
-    node.y = snapped.y;
-
-    if (created) this.render();
-    else {
-      this.renderCanvas();
-      this.updateCodePreview();
-    }
+    this.placement.point = this.snapPoint(point);
+    this.previewPoint = this.placement.point;
+    this.renderCanvas();
   }
 
   private finishShapePlacement(event: PointerEvent): void {
     this.updateShapePlacement(event);
-    const placed = Boolean(this.placement?.nodeId);
+    const placement = this.placement;
+    const placed = Boolean(placement?.point);
+    if (placement?.point) {
+      this.recordHistory();
+      const node = createNode(this.diagram, placement.shape);
+      node.x = placement.point.x;
+      node.y = placement.point.y;
+      this.selection = { kind: "node", id: node.id };
+    }
     this.cancelShapePlacement();
     if (placed) this.setSelectedShapeTool(undefined);
     this.suppressNextPaletteClick = placed;
@@ -1687,6 +1679,7 @@ export class MermaidEditorModal extends Modal {
     this.removePlacementListeners?.();
     this.removePlacementListeners = undefined;
     this.placement = undefined;
+    this.previewPoint = undefined;
     if (!this.selectedShape) this.canvas?.removeClass("is-placing");
   }
 
