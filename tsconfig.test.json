@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "inlineSourceMap": false,
+    "inlineSources": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "rootDir": ".",
+    "sourceMap": false
+  },
+  "include": ["src/flowchart.ts", "src/types.ts", "tests/**/*.ts"]
+}

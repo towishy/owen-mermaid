@@ -62,6 +62,7 @@ export interface DiagramFreeLine {
 export interface FlowDiagram {
   syntax: DiagramSyntax;
   direction: FlowDirection;
+  directives: string[];
   nodes: DiagramNode[];
   edges: DiagramEdge[];
   freeLines: DiagramFreeLine[];

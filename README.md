@@ -7,6 +7,7 @@ Owen Mermaid is an Obsidian plugin for viewing and editing Mermaid SVG images in
 - Provides a full-screen pan and zoom viewer.
 - Includes a flowchart-focused visual editor for creating shapes, dragging nodes, editing text, creating/editing/deleting connectors, and writing changes back to the original Mermaid code block.
 - Supports PNG/JPG download settings for save location, output folder, filename template, quality, background, and scale.
+- Exports all rendered Mermaid SVG diagrams in the active note to a vault folder with an optional Markdown batch report.
 - Provides a settings screen with section headers like the screenshot design.
 - Supports mouse drag-and-drop Mermaid editing directly on the canvas, similar to working in Visio.
 - Applies a liquid glass design tone inspired by Owen Graphite and Owen Editor.
@@ -56,8 +57,25 @@ Owen Mermaid combines those surfaces and adds a visual editor path for flowchart
 2. View the note in Reading view or Live Preview.
 3. Hover a rendered Mermaid diagram to use the inline buttons.
 4. Right-click the Mermaid SVG to open zoom, edit, or download actions.
+5. Run **Export Mermaid diagrams in active note** from the command palette to batch-export every rendered Mermaid SVG in the current note.
 
-The visual editor currently targets common `flowchart`/`graph` Mermaid syntax: nodes, basic shapes, labels, and connectors. Unsupported lines are preserved in the generated output section when possible.
+The visual editor currently targets common `flowchart`/`graph` Mermaid syntax: nodes, basic shapes, labels, and connectors. It also handles basic `stateDiagram` and `sequenceDiagram` structures. Mermaid init directives are preserved before the regenerated header, and unsupported lines or subgraph blocks are preserved in the generated output section when possible.
+
+Keyboard shortcuts inside the editor:
+
+- `Ctrl`/`Cmd` + `Z`: undo the last editor change.
+- `Ctrl`/`Cmd` + `Y` or `Ctrl`/`Cmd` + `Shift` + `Z`: redo the last undone change.
+- `Enter`: edit the selected node, connector, or free line text.
+- `Delete`/`Backspace`: delete the selected item.
+- Arrow keys: move the selected node or free line.
+- `Shift` + arrow keys: move by the grid snap size.
+- `Escape`: cancel the active placement or connector tool.
+
+Batch export notes:
+
+- Batch export uses the configured image format, filename template, output folder, scale, background, and quality.
+- Files are written to the vault output folder and automatically receive a numeric suffix instead of overwriting existing files.
+- The batch report setting controls whether a Markdown report is written never, only on failures, or every time.
 
 ## Development
 

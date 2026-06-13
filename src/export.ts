@@ -6,6 +6,7 @@ import type { ExportFormat } from "./types";
 
 const MAX_CANVAS_DIMENSION = 16384;
 const SVG_NS = "http://www.w3.org/2000/svg";
+const DEFAULT_OUTPUT_FOLDER = "exports/images";
 
 interface ElectronRemoteDialog {
   showSaveDialog(options: {
@@ -31,6 +32,14 @@ export interface ExportFilenameContext {
   index?: number;
 }
 
+export interface VaultExportResult {
+  path: string;
+  fileName: string;
+  folder: string;
+  format: ExportFormat;
+  bytes: number;
+}
+
 export async function downloadSvgImage(
   svg: SVGSVGElement,
   format: ExportFormat,
@@ -39,25 +48,41 @@ export async function downloadSvgImage(
   app: App,
 ): Promise<void> {
   try {
-    const blob = await svgToImageBlob(svg, format, settings.exportScale, settings.imageBackground, settings.imageQuality);
     if (settings.saveLocation === "vault") {
-      await saveBlobToVault(blob, format, settings, source, app);
+      const result = await exportSvgImageToVault(svg, format, settings, source, app);
+      new Notice(`Mermaid diagram saved: ${result.path}`);
     } else {
-      await saveBlobWithDialog(blob, format, settings, source, svg.ownerDocument.defaultView ?? window);
+      const blob = await svgToImageBlob(svg, format, settings.exportScale, settings.imageBackground, settings.imageQuality);
+      const path = await saveBlobWithDialog(blob, format, settings, source, svg.ownerDocument.defaultView ?? window);
+      if (path) new Notice(`Mermaid diagram saved: ${path}`);
     }
   } catch (error) {
     new Notice(`Mermaid download failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
+export async function exportSvgImageToVault(
+  svg: SVGSVGElement,
+  format: ExportFormat,
+  settings: OwenMermaidSettings,
+  source: ExportFilenameContext | string,
+  app: App,
+): Promise<VaultExportResult> {
+  const blob = await svgToImageBlob(svg, format, settings.exportScale, settings.imageBackground, settings.imageQuality);
+  return saveBlobToVault(blob, format, settings, source, app);
+}
+
 export async function svgToImageBlob(svg: SVGSVGElement, format: ExportFormat, scale: number, background = "#FFFFFF", quality = 0.92): Promise<Blob> {
   const preparedSvg = prepareSvg(svg);
   const svgString = new XMLSerializer().serializeToString(preparedSvg);
-  const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
+  const win = svg.ownerDocument.defaultView ?? window;
+  const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+  const imageUrl = win.URL.createObjectURL(svgBlob);
 
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
+      win.URL.revokeObjectURL(imageUrl);
       const dimensions = getSvgDimensions(preparedSvg, image);
       let canvasWidth = Math.max(1, Math.round(dimensions.width * scale));
       let canvasHeight = Math.max(1, Math.round(dimensions.height * scale));
@@ -86,8 +111,11 @@ export async function svgToImageBlob(svg: SVGSVGElement, format: ExportFormat, s
         quality,
       );
     };
-    image.onerror = () => reject(new Error("SVG could not be loaded as an image"));
-    image.src = dataUrl;
+    image.onerror = () => {
+      win.URL.revokeObjectURL(imageUrl);
+      reject(new Error("SVG could not be loaded as an image"));
+    };
+    image.src = imageUrl;
   });
 }
 
@@ -97,7 +125,7 @@ function prepareSvg(svg: SVGSVGElement): SVGSVGElement {
   clone.querySelectorAll("script").forEach((script) => script.remove());
   clone.querySelectorAll("foreignObject").forEach((foreignObject) => replaceForeignObjectWithText(foreignObject, svg));
   ensureDimensions(clone, svg);
-  inlineComputedTextStyles(clone, svg);
+  inlineComputedSvgStyles(clone, svg);
   return clone;
 }
 
@@ -159,23 +187,41 @@ function readBounds(element: Element): { x: number; y: number; width: number; he
   };
 }
 
-function inlineComputedTextStyles(clone: SVGSVGElement, original: SVGSVGElement): void {
-  const originalText = Array.from(original.querySelectorAll("text"));
-  Array.from(clone.querySelectorAll("text")).forEach((text, index) => {
-    const source = originalText[index];
+function inlineComputedSvgStyles(clone: SVGSVGElement, original: SVGSVGElement): void {
+  const selector = "text, path, rect, circle, ellipse, polygon, polyline, line";
+  const originalElements = Array.from(original.querySelectorAll<SVGElement>(selector));
+  Array.from(clone.querySelectorAll<SVGElement>(selector)).forEach((element, index) => {
+    const source = originalElements[index];
     if (!source) return;
     const style = getComputedStyle(source);
-    text.setAttribute("font-family", style.fontFamily || "Arial, sans-serif");
-    text.setAttribute("font-size", style.fontSize || "14px");
-    if (!text.getAttribute("fill")) text.setAttribute("fill", style.fill || style.color || "#111827");
+
+    setPresentationAttribute(element, "fill", style.fill || style.color);
+    setPresentationAttribute(element, "stroke", style.stroke);
+    setPresentationAttribute(element, "stroke-width", style.strokeWidth);
+    setPresentationAttribute(element, "stroke-dasharray", style.strokeDasharray);
+    setPresentationAttribute(element, "stroke-linecap", style.strokeLinecap);
+    setPresentationAttribute(element, "stroke-linejoin", style.strokeLinejoin);
+    setPresentationAttribute(element, "opacity", style.opacity);
+
+    if (element.tagName.toLowerCase() === "text") {
+      setPresentationAttribute(element, "font-family", style.fontFamily || "Arial, sans-serif");
+      setPresentationAttribute(element, "font-size", style.fontSize || "14px");
+      setPresentationAttribute(element, "font-weight", style.fontWeight);
+    }
   });
 }
 
-async function saveBlobWithDialog(blob: Blob, format: ExportFormat, settings: OwenMermaidSettings, source: ExportFilenameContext | string, win: Window): Promise<void> {
+function setPresentationAttribute(element: SVGElement, name: string, value: string): void {
+  const normalized = value.trim();
+  if (!normalized || normalized === "normal" || normalized === "auto") return;
+  element.setAttribute(name, normalized);
+}
+
+async function saveBlobWithDialog(blob: Blob, format: ExportFormat, settings: OwenMermaidSettings, source: ExportFilenameContext | string, win: Window): Promise<string | null> {
   const electron = (win as ElectronWindow).electron;
   if (!electron?.remote?.dialog) {
     new Notice("Download requires the Obsidian desktop app.");
-    return;
+    return null;
   }
 
   const extension = format === "jpg" ? "jpg" : "png";
@@ -185,20 +231,91 @@ async function saveBlobWithDialog(blob: Blob, format: ExportFormat, settings: Ow
     properties: ["showOverwriteConfirmation"],
   });
 
-  if (result.canceled || !result.filePath) return;
+  if (result.canceled || !result.filePath) return null;
   const buffer = Buffer.from(await blob.arrayBuffer());
   await fs.promises.writeFile(result.filePath, buffer);
-  new Notice(`Mermaid diagram saved: ${result.filePath}`);
+  return result.filePath;
 }
 
-async function saveBlobToVault(blob: Blob, format: ExportFormat, settings: OwenMermaidSettings, source: ExportFilenameContext | string, app: App): Promise<void> {
+async function saveBlobToVault(blob: Blob, format: ExportFormat, settings: OwenMermaidSettings, source: ExportFilenameContext | string, app: App): Promise<VaultExportResult> {
   const extension = format === "jpg" ? "jpg" : "png";
-  const folder = settings.outputFolder.replace(/^\/+|\/+$/g, "") || "exports/images";
-  const fileName = `${formatFilename(settings.filenameTemplate, source, extension, settings.exportScale)}.${extension}`;
-  const adapter = app.vault.adapter;
-  if (!(await adapter.exists(folder))) await adapter.mkdir(folder);
-  await adapter.writeBinary(`${folder}/${fileName}`, await blob.arrayBuffer());
-  new Notice(`Mermaid diagram saved: ${folder}/${fileName}`);
+  const folder = getVaultExportFolder(settings);
+  const baseName = formatFilename(settings.filenameTemplate, source, extension, settings.exportScale);
+  await ensureVaultFolder(app, folder);
+  const buffer = await blob.arrayBuffer();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const target = await getAvailableVaultPath(app, folder, baseName, extension);
+    try {
+      await app.vault.adapter.writeBinary(target.path, buffer);
+      return { ...target, folder, format, bytes: blob.size };
+    } catch (error) {
+      if (attempt === 4) throw error;
+      await ensureVaultFolder(app, folder);
+    }
+  }
+
+  throw new Error("Vault export failed after retries");
+}
+
+export function getVaultExportFolder(settings: Pick<OwenMermaidSettings, "outputFolder">): string {
+  return normalizeVaultFolderPath(settings.outputFolder) || DEFAULT_OUTPUT_FOLDER;
+}
+
+export async function ensureVaultFolder(app: App, folder: string): Promise<void> {
+  const normalized = normalizeVaultFolderPath(folder);
+  if (!normalized) return;
+
+  let current = "";
+  for (const segment of normalized.split("/")) {
+    current = current ? `${current}/${segment}` : segment;
+    if (await app.vault.adapter.exists(current)) continue;
+    try {
+      await app.vault.adapter.mkdir(current);
+    } catch (error) {
+      if (!(await app.vault.adapter.exists(current))) throw error;
+    }
+  }
+}
+
+export async function getAvailableVaultPath(app: App, folder: string, baseName: string, extension: string): Promise<{ path: string; fileName: string }> {
+  const normalizedFolder = normalizeVaultFolderPath(folder);
+  const safeBaseName = sanitizeFilename(baseName).replace(/\s+/g, " ").trim() || "mermaid-diagram";
+  let counter = 1;
+
+  while (true) {
+    const suffix = counter === 1 ? "" : `-${counter}`;
+    const fileName = `${safeBaseName}${suffix}.${extension}`;
+    const path = normalizedFolder ? `${normalizedFolder}/${fileName}` : fileName;
+    if (!(await app.vault.adapter.exists(path))) return { path, fileName };
+    counter += 1;
+  }
+}
+
+export async function writeTextToAvailableVaultPath(app: App, folder: string, baseName: string, extension: string, content: string): Promise<{ path: string; fileName: string }> {
+  await ensureVaultFolder(app, folder);
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const target = await getAvailableVaultPath(app, folder, baseName, extension);
+    try {
+      await app.vault.adapter.write(target.path, content);
+      return target;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      await ensureVaultFolder(app, folder);
+    }
+  }
+
+  throw new Error("Vault text write failed after retries");
+}
+
+function normalizeVaultFolderPath(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment && segment !== "." && segment !== "..")
+    .join("/");
 }
 
 function formatFilename(template: string, source: ExportFilenameContext | string, format: string, scale: number): string {

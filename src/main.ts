@@ -1,6 +1,6 @@
-import { MarkdownPostProcessorContext, Menu, Notice, Plugin, TFile, setIcon } from "obsidian";
+import { MarkdownPostProcessorContext, MarkdownView, Menu, Notice, Plugin, TFile, setIcon } from "obsidian";
 import { MermaidEditorModal } from "./editorModal";
-import { downloadSvgImage, type ExportFilenameContext } from "./export";
+import { downloadSvgImage, exportSvgImageToVault, getVaultExportFolder, writeTextToAvailableVaultPath, type ExportFilenameContext } from "./export";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
 import { DEFAULT_SETTINGS, OwenMermaidSettingTab, type OwenMermaidSettings } from "./settings";
 import type { ExportFormat, MermaidBlockContext, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
@@ -21,6 +21,13 @@ interface MermaidFenceInfo {
   lineEnd: number;
 }
 
+interface BatchExportResult {
+  index: number;
+  context: MermaidBlockContext;
+  path?: string;
+  error?: string;
+}
+
 export default class OwenMermaidPlugin extends Plugin {
   settings: OwenMermaidSettings = { ...DEFAULT_SETTINGS };
 
@@ -37,6 +44,12 @@ export default class OwenMermaidPlugin extends Plugin {
       id: "scan-mermaid-diagrams",
       name: "Scan Mermaid diagrams",
       callback: () => this.processOpenDocuments(),
+    });
+
+    this.addCommand({
+      id: "export-active-note-mermaid-diagrams",
+      name: "Export Mermaid diagrams in active note",
+      callback: () => void this.exportActiveNoteMermaidDiagrams(),
     });
 
     this.registerEvent(this.app.workspace.on("layout-change", () => this.processOpenDocuments()));
@@ -174,6 +187,94 @@ export default class OwenMermaidPlugin extends Plugin {
 
   private async download(svg: SVGSVGElement, format: ExportFormat, context: MermaidBlockContext): Promise<void> {
     await downloadSvgImage(svg, format, this.settings, this.createFilenameContext(context), this.app);
+  }
+
+  private async exportActiveNoteMermaidDiagrams(): Promise<void> {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const file = view?.file ?? this.app.workspace.getActiveFile();
+    if (!view || !file) {
+      new Notice("활성 Markdown 노트를 찾지 못했습니다.");
+      return;
+    }
+
+    this.processMermaidBlocks(view.containerEl);
+    const content = await this.app.vault.read(file);
+    const fences = findMermaidFences(content);
+    const blocks = this.collectMermaidBlocks(view.containerEl);
+    const entries = blocks
+      .map((block, index) => ({ block, svg: findRenderedMermaidSvg(block), index }))
+      .filter((entry): entry is { block: HTMLElement; svg: SVGSVGElement; index: number } => Boolean(entry.svg));
+
+    if (entries.length === 0) {
+      new Notice("렌더링된 Mermaid SVG를 찾지 못했습니다. 읽기 보기나 라이브 프리뷰에서 다시 시도해 주세요.");
+      return;
+    }
+
+    const results: BatchExportResult[] = [];
+    for (const entry of entries) {
+      const fence = this.findFenceForRenderedText(fences, entry.svg.textContent ?? "") ?? fences[Math.min(entry.index, fences.length - 1)];
+      const context: MermaidBlockContext = {
+        sourcePath: file.path,
+        lineStart: fence?.lineStart,
+        lineEnd: fence?.lineEnd,
+        source: fence?.source,
+        blockIndex: entry.index,
+      };
+
+      try {
+        const saved = await exportSvgImageToVault(entry.svg, this.settings.exportFormat, this.settings, this.createFilenameContext(context), this.app);
+        results.push({ index: entry.index + 1, context, path: saved.path });
+      } catch (error) {
+        results.push({ index: entry.index + 1, context, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    const failures = results.filter((result) => result.error);
+    const reportPath = await this.writeBatchReportIfNeeded(file, results);
+    const reportSuffix = reportPath ? ` Report: ${reportPath}` : "";
+    if (failures.length > 0) {
+      new Notice(`Mermaid batch export finished with ${failures.length} failure(s).${reportSuffix}`);
+      return;
+    }
+
+    new Notice(`Exported ${results.length} Mermaid diagram(s).${reportSuffix}`);
+  }
+
+  private async writeBatchReportIfNeeded(file: TFile, results: BatchExportResult[]): Promise<string | undefined> {
+    const failures = results.filter((result) => result.error);
+    const shouldWrite = this.settings.batchReportMode === "always" || (this.settings.batchReportMode === "failures" && failures.length > 0);
+    if (!shouldWrite) return undefined;
+
+    const folder = getVaultExportFolder(this.settings);
+    const timestamp = formatBatchTimestamp(new Date());
+    const baseName = sanitizeReportName(`${file.basename}-mermaid-export-${timestamp}`);
+    const target = await writeTextToAvailableVaultPath(this.app, folder, baseName, "md", this.createBatchReport(file, results));
+    return target.path;
+  }
+
+  private createBatchReport(file: TFile, results: BatchExportResult[]): string {
+    const failures = results.filter((result) => result.error);
+    const lines = [
+      "# Owen Mermaid Batch Export",
+      "",
+      `- Note: ${file.path}`,
+      `- Format: ${this.settings.exportFormat.toUpperCase()}`,
+      `- Completed: ${new Date().toISOString()}`,
+      `- Total: ${results.length}`,
+      `- Failed: ${failures.length}`,
+      "",
+      "| # | Source line | Status | Output | Message |",
+      "| --- | --- | --- | --- | --- |",
+    ];
+
+    for (const result of results) {
+      const sourceLine = result.context.lineStart === undefined ? "" : String(result.context.lineStart + 1);
+      lines.push(
+        `| ${result.index} | ${sourceLine} | ${result.error ? "Failed" : "Saved"} | ${formatReportCell(result.path)} | ${formatReportCell(result.error)} |`,
+      );
+    }
+
+    return `${lines.join("\n")}\n`;
   }
 
   private createBlockContext(block: HTMLElement, ctx?: MarkdownPostProcessorContext): MermaidBlockContext {
@@ -418,4 +519,20 @@ function extractFenceTextTokens(source: string): string[] {
 
 function normalizeRenderedText(value: string): string {
   return value.replace(/[#.][A-Za-z0-9_-]+\{[^}]*\}/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function findRenderedMermaidSvg(block: HTMLElement): SVGSVGElement | undefined {
+  return Array.from(block.querySelectorAll<SVGSVGElement>("svg")).find((svg) => !svg.closest(".owen-mermaid-inline-toolbar"));
+}
+
+function formatBatchTimestamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function sanitizeReportName(value: string): string {
+  return value.replace(/[<>:"/\\|?*]/g, "-").replace(/\s+/g, " ").trim() || "mermaid-export-report";
+}
+
+function formatReportCell(value: string | undefined): string {
+  return (value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
 }

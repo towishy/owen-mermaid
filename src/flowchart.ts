@@ -10,6 +10,10 @@ const SEQUENCE_MESSAGE_PATTERN = /^\s*([A-Za-z][\w-]*?)\s*(-{1,2}>>|-->|->)\s*([
 const LABELLED_EDGE_PATTERN = /^\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*(--|-.|==)\s*(.+?)\s*(-->|---|\.->|==>)\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*$/;
 const EDGE_PATTERN = /^\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*(?:(-->|---|==>|-.->)\s*(?:\|([^|]+)\|)?|--\s*([^\-|]+?)\s*-->)\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*$/;
 const NODE_PATTERN = /^\s*([A-Za-z][\w-]*)\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\})\s*$/;
+const INIT_DIRECTIVE_PATTERN = /^%%\{[\s\S]*\}%%$/;
+const FLOWCHART_PRESERVED_LINE_PATTERN = /^\s*(?:classDef|class|style|click|linkStyle)\b/i;
+const SUBGRAPH_START_PATTERN = /^\s*subgraph\b/i;
+const SUBGRAPH_END_PATTERN = /^\s*end\s*$/i;
 const LAYOUT_META_PREFIX = "%% owen-mermaid:";
 const DEFAULT_NODE_WIDTH = 152;
 const DEFAULT_NODE_HEIGHT = 68;
@@ -32,6 +36,7 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
   const diagram: FlowDiagram = {
     syntax: "flowchart",
     direction: fallbackDirection,
+    directives: [],
     nodes: [],
     edges: [],
     freeLines: [],
@@ -42,12 +47,24 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
 
   const lines = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let sawHeader = false;
+  let preservedFlowchartBlockDepth = 0;
 
   for (const line of lines) {
+    if (preservedFlowchartBlockDepth > 0) {
+      diagram.unsupportedLines.push(line);
+      if (SUBGRAPH_START_PATTERN.test(line)) preservedFlowchartBlockDepth += 1;
+      if (SUBGRAPH_END_PATTERN.test(line)) preservedFlowchartBlockDepth -= 1;
+      continue;
+    }
+
     if (line.startsWith("%%")) {
       const meta = parseLayoutMeta(line);
       if (meta) {
         layoutMeta = meta;
+        continue;
+      }
+      if (INIT_DIRECTIVE_PATTERN.test(line)) {
+        diagram.directives.push(line);
         continue;
       }
       diagram.unsupportedLines.push(line);
@@ -72,6 +89,17 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
       diagram.syntax = "flowchart";
       diagram.direction = header[1].toUpperCase() as FlowDirection;
       sawHeader = true;
+      continue;
+    }
+
+    if (diagram.syntax === "flowchart" && FLOWCHART_PRESERVED_LINE_PATTERN.test(line)) {
+      diagram.unsupportedLines.push(line);
+      continue;
+    }
+
+    if (diagram.syntax === "flowchart" && SUBGRAPH_START_PATTERN.test(line)) {
+      diagram.unsupportedLines.push(line);
+      preservedFlowchartBlockDepth = 1;
       continue;
     }
 
@@ -192,7 +220,7 @@ export function generateFlowchart(diagram: FlowDiagram, includeLayout = true): s
   if (diagram.syntax === "stateDiagram") return generateStateDiagram(diagram, includeLayout);
   if (diagram.syntax === "sequenceDiagram") return generateSequenceDiagram(diagram, includeLayout);
 
-  const lines = [`flowchart ${diagram.direction}`];
+  const lines = [...diagram.directives, `flowchart ${diagram.direction}`];
   if (includeLayout) lines.push(`  ${serializeLayoutMeta(diagram)}`);
 
   for (const node of diagram.nodes) {
@@ -244,6 +272,7 @@ export function cloneDiagram(diagram: FlowDiagram): FlowDiagram {
   return {
     syntax: diagram.syntax,
     direction: diagram.direction,
+    directives: [...diagram.directives],
     nodes: diagram.nodes.map((node) => ({ ...node })),
     edges: diagram.edges.map((edge) => ({ ...edge })),
     freeLines: diagram.freeLines.map((line) => ({ ...line })),
@@ -252,7 +281,7 @@ export function cloneDiagram(diagram: FlowDiagram): FlowDiagram {
 }
 
 function generateStateDiagram(diagram: FlowDiagram, includeLayout: boolean): string {
-  const lines = ["stateDiagram-v2"];
+  const lines = [...diagram.directives, "stateDiagram-v2"];
   if (includeLayout) lines.push(`  ${serializeLayoutMeta(diagram)}`);
 
   const connectedIds = new Set<string>();
@@ -280,7 +309,7 @@ function generateStateDiagram(diagram: FlowDiagram, includeLayout: boolean): str
 }
 
 function generateSequenceDiagram(diagram: FlowDiagram, includeLayout: boolean): string {
-  const lines = ["sequenceDiagram"];
+  const lines = [...diagram.directives, "sequenceDiagram"];
   if (includeLayout) lines.push(`  ${serializeLayoutMeta(diagram)}`);
 
   for (const node of diagram.nodes) {
@@ -466,6 +495,7 @@ function extractLabel(id: string, syntax: string): string {
   if (label.startsWith("[")) label = label.slice(1, -1);
   else if (label.startsWith("{") || label.startsWith("(")) label = label.slice(1, -1);
   if (label.startsWith("(")) label = label.slice(1, -1);
+  label = label.replace(/^(["'`])(.*)\1$/, "$2");
   return label.trim() || id;
 }
 
