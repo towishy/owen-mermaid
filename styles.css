@@ -85,16 +85,16 @@
 
 .owen-mermaid-zoom-modal.modal,
 .owen-mermaid-editor-modal.modal {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18) !important;
   height: min(880px, calc(100vh - 48px));
   max-width: calc(100vw - 36px);
-  padding: 0;
+  padding: 0 !important;
   width: min(1180px, calc(100vw - 36px));
 }
 
 .owen-mermaid-editor-modal.modal {
-  background: transparent;
-  border-top: 0 !important;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
   max-height: calc(100vh - 36px);
   min-height: 520px;
   min-width: 760px;
@@ -104,10 +104,20 @@
 
 .owen-mermaid-zoom-modal .modal-content,
 .owen-mermaid-editor-modal .modal-content {
-  border-top: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
   height: 100%;
   margin: 0;
+  overflow: hidden;
   padding: 0;
+}
+
+.owen-mermaid-zoom-modal > .modal-header,
+.owen-mermaid-editor-modal > .modal-header,
+.owen-mermaid-zoom-modal > .modal-close-button,
+.owen-mermaid-editor-modal > .modal-close-button {
+  display: none !important;
 }
 
 .owen-mermaid-zoom-shell,
