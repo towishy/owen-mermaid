@@ -2,6 +2,7 @@ import { MarkdownPostProcessorContext, MarkdownView, Menu, Notice, Plugin, TFile
 import { MermaidEditorModal } from "./editorModal";
 import { downloadSvgImage, exportSvgImageToVault, getVaultExportFolder, writeTextToAvailableVaultPath, type ExportFilenameContext } from "./export";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
+import { extractMermaidSource, findMermaidFences, replaceMermaidSourceInContent, type MermaidFenceInfo } from "./markdown";
 import { DEFAULT_SETTINGS, OwenMermaidSettingTab, type OwenMermaidSettings } from "./settings";
 import type { ExportFormat, MermaidBlockContext, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
 import { MermaidZoomModal } from "./zoomModal";
@@ -11,12 +12,6 @@ const MERMAID_SELECTOR = ".mermaid, .block-language-mermaid";
 
 interface SectionInfo {
   text: string;
-  lineStart: number;
-  lineEnd: number;
-}
-
-interface MermaidFenceInfo {
-  source: string;
   lineStart: number;
   lineEnd: number;
 }
@@ -351,20 +346,7 @@ export default class OwenMermaidPlugin extends Plugin {
     }
 
     const content = await this.app.vault.read(file);
-    const lines = content.split(/\r?\n/);
-    const rangeStart = Math.max(0, context.lineStart);
-    const rangeEnd = Math.min(lines.length - 1, context.lineEnd);
-    const opening = findFenceLine(lines, rangeStart, rangeEnd, true);
-    const closing = opening === -1 ? -1 : findFenceLine(lines, opening + 1, rangeEnd, false);
-    const nextLines = nextSource.trimEnd().split(/\r?\n/);
-
-    if (opening >= 0 && closing > opening) {
-      lines.splice(opening + 1, closing - opening - 1, ...nextLines);
-    } else {
-      lines.splice(rangeStart, rangeEnd - rangeStart + 1, "```mermaid", ...nextLines, "```");
-    }
-
-    await this.app.vault.modify(file, lines.join("\n"));
+    await this.app.vault.modify(file, replaceMermaidSourceInContent(content, context, nextSource));
     this.refreshRenderedMermaidBlocks(context.sourcePath);
   }
 
@@ -395,48 +377,6 @@ export default class OwenMermaidPlugin extends Plugin {
       index: context.lineStart === undefined ? undefined : context.lineStart + 1,
     };
   }
-}
-
-function extractMermaidSource(sectionText: string): string {
-  const lines = sectionText.split(/\r?\n/);
-  const opening = findFenceLine(lines, 0, lines.length - 1, true);
-  const closing = opening === -1 ? -1 : findFenceLine(lines, opening + 1, lines.length - 1, false);
-  if (opening >= 0 && closing > opening) return lines.slice(opening + 1, closing).join("\n");
-  return sectionText;
-}
-
-function findMermaidFences(content: string): MermaidFenceInfo[] {
-  const lines = content.split(/\r?\n/);
-  const fences: MermaidFenceInfo[] = [];
-  let opening = -1;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]?.trim() ?? "";
-    if (opening === -1) {
-      if (/^```\s*mermaid\b/i.test(line)) opening = index;
-      continue;
-    }
-
-    if (/^```\s*$/.test(line)) {
-      fences.push({
-        lineStart: opening,
-        lineEnd: index,
-        source: lines.slice(opening + 1, index).join("\n"),
-      });
-      opening = -1;
-    }
-  }
-
-  return fences;
-}
-
-function findFenceLine(lines: string[], start: number, end: number, opening: boolean): number {
-  for (let index = start; index <= end; index += 1) {
-    const line = lines[index]?.trim() ?? "";
-    if (opening && /^```\s*mermaid\b/i.test(line)) return index;
-    if (!opening && /^```\s*$/.test(line)) return index;
-  }
-  return -1;
 }
 
 function extractRenderedLayout(svg: SVGSVGElement): MermaidRenderedLayout {
