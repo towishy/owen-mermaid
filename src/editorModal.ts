@@ -51,6 +51,7 @@ interface FreeLineDraft {
 
 export class MermaidEditorModal extends Modal {
   private diagram: FlowDiagram;
+  private savedSource: string;
   private selection: Selection = null;
   private stage?: HTMLElement;
   private canvas?: SVGSVGElement;
@@ -77,6 +78,11 @@ export class MermaidEditorModal extends Modal {
   private reconnectState?: ReconnectState;
   private suppressNextCanvasClick = false;
   private suppressNextPaletteClick = false;
+  private suppressClosePrompt = false;
+  private discardPromptOpen = false;
+  private keyboardMoveHistoryRecorded = false;
+  private sourceEditing = false;
+  private sourceDraft?: string;
   private editorZoom = 1;
   private readonly history = new HistoryStack<FlowDiagram>(cloneDiagram);
   private readonly handleEditorKeydown = (event: KeyboardEvent): void => {
@@ -125,10 +131,14 @@ export class MermaidEditorModal extends Modal {
       ArrowLeft: { x: -delta, y: 0 },
     };
     const move = directions[event.key];
-    if (move && this.moveSelection(move.x, move.y)) {
+    if (move && this.moveSelection(move.x, move.y, !this.keyboardMoveHistoryRecorded)) {
+      this.keyboardMoveHistoryRecorded = true;
       event.preventDefault();
       event.stopPropagation();
     }
+  };
+  private readonly handleEditorKeyup = (event: KeyboardEvent): void => {
+    if (["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(event.key)) this.keyboardMoveHistoryRecorded = false;
   };
 
   constructor(
@@ -141,12 +151,14 @@ export class MermaidEditorModal extends Modal {
     super(app);
     this.diagram = parseFlowchart(source, fallbackDirection);
     if (renderedLayout) this.applyRenderedLayout(renderedLayout);
+    this.savedSource = this.currentSource();
   }
 
   onOpen(): void {
     ensureLiquidGlassFilter(this.containerEl.ownerDocument);
     this.modalEl.addClass("owen-mermaid-editor-modal");
     this.modalEl.addEventListener("keydown", this.handleEditorKeydown);
+    this.modalEl.addEventListener("keyup", this.handleEditorKeyup);
     this.contentEl.empty();
 
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-editor-shell" });
@@ -173,6 +185,15 @@ export class MermaidEditorModal extends Modal {
     this.render();
   }
 
+  close(): void {
+    if (this.suppressClosePrompt || !this.hasUnsavedChanges()) {
+      super.close();
+      return;
+    }
+
+    this.showDiscardChangesPrompt();
+  }
+
   onClose(): void {
     this.cancelShapePlacement();
     this.endDrag();
@@ -180,6 +201,7 @@ export class MermaidEditorModal extends Modal {
     this.endConnectionDrag();
     this.endFreeLineDraw();
     this.modalEl.removeEventListener("keydown", this.handleEditorKeydown);
+    this.modalEl.removeEventListener("keyup", this.handleEditorKeyup);
     this.contentEl.empty();
   }
 
@@ -740,13 +762,36 @@ export class MermaidEditorModal extends Modal {
 
   private renderCodePreview(parent: HTMLElement): void {
     parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Mermaid" });
+    const actions = parent.createDiv({ cls: "owen-mermaid-source-actions" });
+    const editButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: this.sourceEditing ? "Cancel source edit" : "Edit source", attr: { type: "button" } });
+    const applyButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: "Apply source", attr: { type: "button" } });
+    applyButton.disabled = !this.sourceEditing;
+
     this.codePreview = parent.createEl("textarea", { cls: "owen-mermaid-code-preview" });
-    this.codePreview.value = generateFlowchart(this.diagram);
-    this.codePreview.addEventListener("change", () => {
-      this.recordHistory();
-      this.diagram = parseFlowchart(this.codePreview?.value ?? "", this.diagram.direction);
-      this.selection = null;
-      this.render();
+    this.codePreview.value = this.sourceEditing ? this.sourceDraft ?? this.currentSource() : this.currentSource();
+    this.codePreview.readOnly = !this.sourceEditing;
+    this.codePreview.toggleClass("is-readonly", !this.sourceEditing);
+    this.codePreview.addEventListener("input", () => {
+      if (this.sourceEditing) this.sourceDraft = this.codePreview?.value ?? "";
+    });
+
+    editButton.addEventListener("click", () => {
+      if (this.sourceEditing) {
+        this.sourceEditing = false;
+        this.sourceDraft = undefined;
+      } else {
+        this.sourceEditing = true;
+        this.sourceDraft = this.currentSource();
+      }
+      this.renderInspector();
+      if (this.sourceEditing) {
+        const win = this.containerEl.ownerDocument.defaultView ?? window;
+        win.requestAnimationFrame(() => this.codePreview?.focus());
+      }
+    });
+    applyButton.addEventListener("click", () => {
+      if (!this.sourceEditing) return;
+      this.applySourceDraft();
     });
   }
 
@@ -970,13 +1015,52 @@ export class MermaidEditorModal extends Modal {
   }
 
   private async save(): Promise<void> {
-    await this.onSave(generateFlowchart(this.diagram));
+    if (this.sourceEditing) this.applySourceDraft(false);
+    const nextSource = this.currentSource();
+    await this.onSave(nextSource);
+    this.savedSource = nextSource;
+    this.suppressClosePrompt = true;
     new Notice("Mermaid diagram updated.");
     this.close();
   }
 
   private updateCodePreview(): void {
-    if (this.codePreview) this.codePreview.value = generateFlowchart(this.diagram);
+    if (this.codePreview && !this.sourceEditing) this.codePreview.value = this.currentSource();
+  }
+
+  private applySourceDraft(renderAfter = true): void {
+    const source = this.sourceDraft ?? this.codePreview?.value ?? this.currentSource();
+    this.recordHistory();
+    this.diagram = parseFlowchart(source, this.diagram.direction);
+    this.selection = null;
+    this.sourceEditing = false;
+    this.sourceDraft = undefined;
+    if (renderAfter) this.render();
+  }
+
+  private currentSource(): string {
+    return generateFlowchart(this.diagram);
+  }
+
+  private hasUnsavedChanges(): boolean {
+    if (this.sourceEditing && this.sourceDraft !== undefined && this.sourceDraft !== this.currentSource()) return true;
+    return this.currentSource() !== this.savedSource;
+  }
+
+  private showDiscardChangesPrompt(): void {
+    if (this.discardPromptOpen) return;
+    this.discardPromptOpen = true;
+    new MermaidDiscardChangesModal(
+      this.app,
+      () => {
+        this.discardPromptOpen = false;
+        this.suppressClosePrompt = true;
+        this.close();
+      },
+      () => {
+        this.discardPromptOpen = false;
+      },
+    ).open();
   }
 
   private recordHistory(): void {
@@ -998,6 +1082,9 @@ export class MermaidEditorModal extends Modal {
   private restoreHistory(diagram: FlowDiagram): void {
     this.diagram = diagram;
     this.selection = null;
+    this.keyboardMoveHistoryRecorded = false;
+    this.sourceEditing = false;
+    this.sourceDraft = undefined;
     this.cancelShapePlacement();
     this.endDrag();
     this.endResize();
@@ -1063,13 +1150,14 @@ export class MermaidEditorModal extends Modal {
     return true;
   }
 
-  private moveSelection(deltaX: number, deltaY: number): boolean {
+  private moveSelection(deltaX: number, deltaY: number, recordHistory = false): boolean {
     const selection = this.selection;
     if (!selection) return false;
 
     if (selection.kind === "node") {
       const node = this.diagram.nodes.find((item) => item.id === selection.id);
       if (!node) return false;
+      if (recordHistory) this.recordHistory();
       this.clearRenderedPathsForNode(node.id);
       node.x += deltaX;
       node.y += deltaY;
@@ -1081,6 +1169,7 @@ export class MermaidEditorModal extends Modal {
     if (selection.kind === "freeLine") {
       const line = this.diagram.freeLines.find((item) => item.id === selection.id);
       if (!line) return false;
+      if (recordHistory) this.recordHistory();
       line.x1 += deltaX;
       line.x2 += deltaX;
       line.y1 += deltaY;
@@ -1130,7 +1219,7 @@ export class MermaidEditorModal extends Modal {
       return;
     }
 
-  this.recordHistory();
+    this.recordHistory();
     const edge = createEdge(this.diagram, this.connectingFromNodeId, targetNodeId);
     if (this.selectedConnector) edge.style = this.selectedConnector.style;
     this.selection = { kind: "edge", id: edge.id };
@@ -1313,6 +1402,7 @@ export class MermaidEditorModal extends Modal {
     }
 
     const existing = this.diagram.edges.find((edge) => edge.from === this.connectingFromNodeId && edge.to === nodeId);
+    this.recordHistory();
     const edge = existing ?? createEdge(this.diagram, this.connectingFromNodeId, nodeId);
     edge.style = this.selectedConnector.style;
     this.selection = { kind: "edge", id: edge.id };
@@ -1802,6 +1892,45 @@ export class MermaidEditorModal extends Modal {
 
   protected cloneWorkingDiagram(): FlowDiagram {
     return cloneDiagram(this.diagram);
+  }
+}
+
+class MermaidDiscardChangesModal extends Modal {
+  private handled = false;
+
+  constructor(
+    app: App,
+    private readonly onDiscard: () => void,
+    private readonly onKeepEditing: () => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("owen-mermaid-confirm-modal");
+    this.contentEl.empty();
+    const shell = this.contentEl.createDiv({ cls: "owen-mermaid-confirm-shell" });
+    shell.createEl("h3", { text: "Discard Mermaid changes?" });
+    shell.createEl("p", { text: "Your visual editor changes have not been applied to the note." });
+
+    const actions = shell.createDiv({ cls: "owen-mermaid-confirm-actions" });
+    const keep = actions.createEl("button", { text: "Keep editing", attr: { type: "button" } });
+    const discard = actions.createEl("button", { cls: "is-danger", text: "Discard", attr: { type: "button" } });
+
+    keep.addEventListener("click", () => this.finish(false));
+    discard.addEventListener("click", () => this.finish(true));
+  }
+
+  onClose(): void {
+    if (!this.handled) this.onKeepEditing();
+  }
+
+  private finish(discard: boolean): void {
+    if (this.handled) return;
+    this.handled = true;
+    this.close();
+    if (discard) this.onDiscard();
+    else this.onKeepEditing();
   }
 }
 

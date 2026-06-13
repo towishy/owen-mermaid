@@ -698,11 +698,33 @@
   resize: vertical;
 }
 
+.owen-mermaid-source-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 8px;
+}
+
+.owen-mermaid-source-actions .owen-mermaid-action-button {
+  justify-content: center;
+}
+
+.owen-mermaid-source-actions .owen-mermaid-action-button:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.owen-mermaid-code-preview.is-readonly {
+  color: #475569;
+}
+
+.owen-mermaid-confirm-modal.modal,
 .owen-mermaid-text-edit-modal.modal {
   max-width: calc(100vw - 48px);
   width: 380px;
 }
 
+.owen-mermaid-confirm-shell,
 .owen-mermaid-text-edit-shell {
   background:
     radial-gradient(circle at 18% 10%, rgba(186, 230, 253, 0.24), transparent 34%),
@@ -715,6 +737,7 @@
   padding: 18px;
 }
 
+.owen-mermaid-confirm-shell h3,
 .owen-mermaid-text-edit-shell h3 {
   color: #172033;
   font-size: 16px;
@@ -724,16 +747,29 @@
   margin: 0;
 }
 
+.owen-mermaid-confirm-shell p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.owen-mermaid-confirm-actions,
 .owen-mermaid-text-edit-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
 }
 
+.owen-mermaid-confirm-actions button,
 .owen-mermaid-text-edit-actions button {
   border-radius: 7px;
   min-height: 32px;
   padding: 6px 12px;
+}
+
+.owen-mermaid-confirm-actions .is-danger {
+  color: #be123c;
 }
 
 .owen-mermaid-connect-row {
