@@ -5,6 +5,7 @@ import { ensureLiquidGlassFilter } from "./liquidGlass";
 import { extractMermaidSource, findMermaidFences, replaceMermaidSourceInContent, type MermaidFenceInfo } from "./markdown";
 import { DEFAULT_SETTINGS, OwenMermaidSettingTab, type OwenMermaidSettings } from "./settings";
 import type { ExportFormat, MermaidBlockContext, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
+import { hasOwenMermaidLayout, renderVisualDiagram } from "./visualRenderer";
 import { MermaidZoomModal } from "./zoomModal";
 
 const MARKER_ATTR = "data-owen-mermaid-enhanced";
@@ -63,7 +64,7 @@ export default class OwenMermaidPlugin extends Plugin {
 
   processMermaidBlocks(el: HTMLElement, ctx?: MarkdownPostProcessorContext): boolean {
     const blocks = this.collectMermaidBlocks(el);
-    for (const block of blocks) this.attachBlockUi(block, ctx);
+    for (const block of blocks) void this.attachBlockUi(block, ctx);
     return blocks.length > 0;
   }
 
@@ -75,19 +76,27 @@ export default class OwenMermaidPlugin extends Plugin {
     return uniqueBlocks.filter((block) => !uniqueBlocks.some((other) => other !== block && other.contains(block)));
   }
 
-  private attachBlockUi(block: HTMLElement, ctx?: MarkdownPostProcessorContext): void {
+  private async attachBlockUi(block: HTMLElement, ctx?: MarkdownPostProcessorContext): Promise<void> {
     if (block.hasAttribute(MARKER_ATTR)) return;
     block.setAttribute(MARKER_ATTR, "true");
     block.addClass("owen-mermaid-block");
     ensureLiquidGlassFilter(block.ownerDocument);
 
-    const svg = block.querySelector<SVGSVGElement>("svg");
-    if (!svg) {
+    const nativeSvg = block.querySelector<SVGSVGElement>("svg");
+    if (!nativeSvg) {
       this.pollForSvg(block, ctx);
       return;
     }
 
-    const blockContext = this.createBlockContext(block, ctx);
+    let blockContext = this.createBlockContext(block, ctx);
+    if (!hasOwenMermaidLayout(blockContext.source ?? "")) {
+      blockContext = await this.resolveEditableContext(blockContext, nativeSvg.textContent ?? "");
+      if (!block.isConnected) return;
+    }
+
+    const visualSvg = this.renderStoredLayoutSvg(block, blockContext.source);
+    const svg = visualSvg ?? nativeSvg;
+
     const toolbar = block.createDiv({ cls: "owen-mermaid-inline-toolbar" });
     this.createInlineButton(toolbar, "maximize-2", "Open zoom viewer", () => this.openZoom(svg));
     this.createInlineButton(toolbar, "edit-3", "Edit Mermaid diagram", () => void this.openEditor(blockContext, svg));
@@ -109,7 +118,7 @@ export default class OwenMermaidPlugin extends Plugin {
       if (svg || tries >= 25) {
         win.clearInterval(timer);
         block.removeAttribute(MARKER_ATTR);
-        if (svg) this.attachBlockUi(block, ctx);
+        if (svg) void this.attachBlockUi(block, ctx);
       }
     }, 200);
     this.register(() => win.clearInterval(timer));
@@ -176,8 +185,17 @@ export default class OwenMermaidPlugin extends Plugin {
       resolvedContext.source ?? "",
       this.settings.defaultEditorDirection,
       async (nextSource) => this.replaceMermaidSource(resolvedContext, nextSource),
-      svg ? extractRenderedLayout(svg) : undefined,
+      svg && !hasOwenMermaidLayout(resolvedContext.source ?? "") ? extractRenderedLayout(svg) : undefined,
     ).open();
+  }
+
+  private renderStoredLayoutSvg(block: HTMLElement, source: string | undefined): SVGSVGElement | undefined {
+    if (!source || !hasOwenMermaidLayout(source)) return undefined;
+    const svg = renderVisualDiagram(source, block.ownerDocument, this.settings.defaultEditorDirection);
+    if (!svg) return undefined;
+    block.empty();
+    block.appendChild(svg);
+    return svg;
   }
 
   private async download(svg: SVGSVGElement, format: ExportFormat, context: MermaidBlockContext): Promise<void> {

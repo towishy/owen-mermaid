@@ -10,6 +10,28 @@
   position: relative;
 }
 
+.owen-mermaid-visual-svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.owen-mermaid-visual-svg .owen-mermaid-node,
+.owen-mermaid-visual-svg .owen-mermaid-edge,
+.owen-mermaid-visual-svg .owen-mermaid-free-line,
+.owen-mermaid-visual-svg .owen-mermaid-sequence-message,
+.owen-mermaid-visual-svg .owen-mermaid-sequence-lifeline {
+  cursor: default;
+}
+
+.owen-mermaid-visual-svg .owen-mermaid-edge-hit,
+.owen-mermaid-visual-svg .owen-mermaid-free-line .owen-mermaid-edge-hit,
+.owen-mermaid-visual-svg .owen-mermaid-sequence-message .owen-mermaid-edge-hit {
+  pointer-events: none;
+}
+
 .owen-mermaid-inline-toolbar,
 .owen-mermaid-glass-toolbar {
   --owen-mermaid-liquid-bg: rgba(255, 255, 255, 0.72);
