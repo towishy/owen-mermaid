@@ -578,7 +578,7 @@
 }
 
 .owen-mermaid-color-swatch {
-  background: var(--owen-mermaid-swatch);
+  background: rgba(255, 255, 255, 0.72) !important;
   border: 1px solid rgba(100, 116, 139, 0.32);
   border-radius: 999px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.54), 0 1px 3px rgba(15, 23, 42, 0.1);
@@ -586,7 +586,17 @@
   flex: 0 0 auto;
   height: 16px;
   padding: 0;
+  position: relative;
   width: 16px;
+}
+
+.owen-mermaid-color-swatch::before {
+  background: var(--owen-mermaid-swatch);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  content: "";
+  inset: 2px;
+  position: absolute;
 }
 
 .owen-mermaid-color-swatch:hover,

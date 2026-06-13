@@ -136,3 +136,24 @@ test("keeps state diagram markers and labels", () => {
   assert.match(output, /\[\*\] --> Ready/);
   assert.match(output, /Ready --> \[\*\]: done/);
 });
+
+test("renders state diagram labels and colors as Mermaid syntax", () => {
+  const diagram = parseFlowchart('stateDiagram-v2\n  [*] --> Ready\n  state "Ready state" as Ready\n  Ready --> [*]: done\n', "LR");
+  const node = diagram.nodes.find((item) => item.id === "Ready");
+  assert.ok(node);
+  node.fillColor = "#dbeafe";
+  node.strokeColor = "#64748b";
+  node.textColor = "#172033";
+
+  const output = generateFlowchart(diagram, false);
+  assert.match(output, /state "Ready state" as Ready/);
+  assert.match(output, /classDef owenMermaidState0 fill:#dbeafe,stroke:#64748b,color:#172033/);
+  assert.match(output, /class Ready owenMermaidState0/);
+
+  const roundTrip = parseFlowchart(output, "LR");
+  const roundTripNode = roundTrip.nodes.find((item) => item.id === "Ready");
+  assert.equal(roundTripNode?.label, "Ready state");
+  assert.equal(roundTripNode?.fillColor, "#dbeafe");
+  assert.equal(roundTripNode?.strokeColor, "#64748b");
+  assert.equal(roundTripNode?.textColor, "#172033");
+});

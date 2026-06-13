@@ -13,6 +13,9 @@ const EDGE_PATTERN = new RegExp(String.raw`^\s*([A-Za-z][\w-]*)(?:\s*(${FLOW_NOD
 const NODE_PATTERN = new RegExp(String.raw`^\s*([A-Za-z][\w-]*)\s*(${FLOW_NODE_SHAPE_PATTERN})\s*$`);
 const NODE_STYLE_PATTERN = /^\s*style\s+([A-Za-z][\w-]*)\s+(.+)\s*$/i;
 const LINK_STYLE_PATTERN = /^\s*linkStyle\s+(\d+)\s+(.+)\s*$/i;
+const STATE_CLASSDEF_PREFIX = "owenMermaidState";
+const STATE_CLASSDEF_PATTERN = new RegExp(String.raw`^\s*classDef\s+(${STATE_CLASSDEF_PREFIX}\d+)\s+(.+)\s*$`, "i");
+const STATE_CLASS_PATTERN = new RegExp(String.raw`^\s*class\s+([A-Za-z][\w-]*)\s+(${STATE_CLASSDEF_PREFIX}\d+)\s*$`, "i");
 const INIT_DIRECTIVE_PATTERN = /^%%\{[\s\S]*\}%%$/;
 const FLOWCHART_PRESERVED_LINE_PATTERN = /^\s*(?:classDef|class|style|click|linkStyle)\b/i;
 const SUBGRAPH_START_PATTERN = /^\s*subgraph\b/i;
@@ -58,6 +61,7 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
     unsupportedLines: [],
   };
   const nodeMap = new Map<string, DiagramNode>();
+  const stateStyleClasses = new Map<string, { fillColor?: string; strokeColor?: string; textColor?: string }>();
   let layoutMeta: LayoutMeta | null = null;
 
   const lines = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -127,6 +131,18 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
     }
 
     if (diagram.syntax === "stateDiagram") {
+      const classDef = line.match(STATE_CLASSDEF_PATTERN);
+      if (classDef) {
+        const colors = parseColorStyle(classDef[2], true);
+        if (colors) {
+          stateStyleClasses.set(classDef[1], colors);
+          continue;
+        }
+      }
+
+      const classLine = line.match(STATE_CLASS_PATTERN);
+      if (classLine && applyStateClassStyle(nodeMap, classLine[1], stateStyleClasses.get(classLine[2]))) continue;
+
       const stateNode = line.match(STATE_NODE_PATTERN);
       if (stateNode) {
         ensureNode(nodeMap, stateNode[2], `[${stateNode[1]}]`);
@@ -318,7 +334,8 @@ function generateStateDiagram(diagram: FlowDiagram, includeLayout: boolean): str
   }
 
   for (const node of diagram.nodes) {
-    if (isStateMarker(node.id) || connectedIds.has(node.id)) continue;
+    if (isStateMarker(node.id)) continue;
+    if (connectedIds.has(node.id) && node.label === node.id) continue;
     lines.push(`  state "${sanitizeStateLabel(node.label)}" as ${node.id}`);
   }
 
@@ -326,6 +343,9 @@ function generateStateDiagram(diagram: FlowDiagram, includeLayout: boolean): str
     const label = edge.label.trim() ? `: ${sanitizeStateLabel(edge.label)}` : "";
     lines.push(`  ${formatStateEndpoint(edge.from, "from")} --> ${formatStateEndpoint(edge.to, "to")}${label}`);
   }
+
+  const styleLines = serializeStateDiagramStyleLines(diagram);
+  if (styleLines.length > 0) lines.push("", ...styleLines);
 
   if (diagram.unsupportedLines.length > 0) {
     lines.push("", "  %% Preserved unsupported lines");
@@ -382,6 +402,8 @@ function ensureNode(nodeMap: Map<string, DiagramNode>, id: string, syntax?: stri
 }
 
 function ensureStateNode(nodeMap: Map<string, DiagramNode>, id: string): DiagramNode {
+  if (!isStateMarker(id)) return nodeMap.get(id) ?? ensureNode(nodeMap, id, `[${id}]`);
+
   const syntax = isStateMarker(id) ? "(( ))" : `[${id}]`;
   const node = ensureNode(nodeMap, id, syntax);
   if (id === STATE_START_ID) node.label = "Start";
@@ -562,6 +584,15 @@ function readFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function applyStateClassStyle(nodeMap: Map<string, DiagramNode>, id: string, colors: { fillColor?: string; strokeColor?: string; textColor?: string } | undefined): boolean {
+  if (!colors) return false;
+  const node = nodeMap.get(id) ?? ensureNode(nodeMap, id, `[${id}]`);
+  node.fillColor = colors.fillColor ?? node.fillColor;
+  node.strokeColor = colors.strokeColor ?? node.strokeColor;
+  node.textColor = colors.textColor ?? node.textColor;
+  return true;
+}
+
 function applyNodeColorStyle(nodeMap: Map<string, DiagramNode>, id: string, style: string): boolean {
   const node = nodeMap.get(id);
   if (!node) return false;
@@ -627,6 +658,26 @@ function serializeFlowchartStyleLines(diagram: FlowDiagram): string[] {
     ].filter(Boolean);
     if (styles.length > 0) lines.push(`  linkStyle ${index} ${styles.join(",")}`);
   });
+  return lines;
+}
+
+function serializeStateDiagramStyleLines(diagram: FlowDiagram): string[] {
+  if (diagram.syntax !== "stateDiagram") return [];
+  const lines: string[] = [];
+  let classIndex = 0;
+  for (const node of diagram.nodes) {
+    if (isStateMarker(node.id)) continue;
+    const styles = [
+      node.fillColor ? `fill:${node.fillColor}` : "",
+      node.strokeColor ? `stroke:${node.strokeColor}` : "",
+      node.textColor ? `color:${node.textColor}` : "",
+    ].filter(Boolean);
+    if (styles.length === 0) continue;
+    const className = `${STATE_CLASSDEF_PREFIX}${classIndex}`;
+    classIndex += 1;
+    lines.push(`  classDef ${className} ${styles.join(",")}`);
+    lines.push(`  class ${node.id} ${className}`);
+  }
   return lines;
 }
 
