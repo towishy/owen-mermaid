@@ -93,6 +93,8 @@ export class MermaidEditorModal extends Modal {
   private activeSelection: Selection = null;
   private stage?: HTMLElement;
   private canvas?: SVGSVGElement;
+  private ribbon?: HTMLElement;
+  private ribbonContextKey = "";
   private zoomLabel?: HTMLElement;
   private minimap?: SVGSVGElement;
   private statusBar?: HTMLElement;
@@ -240,8 +242,8 @@ export class MermaidEditorModal extends Modal {
     this.createButton(actions, "save", "Apply", () => void this.save());
     this.createButton(actions, "x", "Close", () => this.close());
 
-    const ribbon = shell.createDiv({ cls: "owen-mermaid-editor-ribbon" });
-    this.renderPalette(ribbon);
+    this.ribbon = shell.createDiv({ cls: "owen-mermaid-editor-ribbon" });
+    this.renderRibbon(true);
 
     const body = shell.createDiv({ cls: "owen-mermaid-editor-body" });
     this.stage = body.createDiv({ cls: "owen-mermaid-editor-stage" });
@@ -275,6 +277,8 @@ export class MermaidEditorModal extends Modal {
     this.endFreeLineDraw();
     this.endLabelDrag();
     this.endModalResize();
+    this.ribbon = undefined;
+    this.ribbonContextKey = "";
     this.modalEl.removeEventListener("keydown", this.handleEditorKeydown);
     this.modalEl.removeEventListener("keyup", this.handleEditorKeyup);
     this.contentEl.empty();
@@ -341,22 +345,64 @@ export class MermaidEditorModal extends Modal {
     return this.diagram.nodes.filter((node) => this.selectedNodeIds.has(node.id));
   }
 
+  private renderRibbon(force = false): void {
+    if (!this.ribbon) return;
+    const key = this.createRibbonContextKey();
+    if (!force && this.ribbonContextKey === key) {
+      this.updatePaletteState();
+      return;
+    }
+    this.ribbonContextKey = key;
+    this.renderPalette(this.ribbon);
+    this.updatePaletteState();
+  }
+
+  private createRibbonContextKey(): string {
+    const selection = this.editorSelection;
+    const selectedCount = selection?.kind === "node" ? this.selectedNodeIds.size : 0;
+    return `${selection?.kind ?? "none"}:${selectedCount}:${this.diagram.syntax}`;
+  }
+
   private renderPalette(parent: HTMLElement): void {
+    parent.empty();
+    parent.setAttribute("data-ribbon-context", this.editorSelection?.kind ?? "draw");
+    this.colorTargetSelect = undefined;
+    this.colorInput = undefined;
+    this.colorResetButton = undefined;
+    this.colorClearButton = undefined;
+    this.colorApplySimilarButton = undefined;
+    this.colorTargetButtons.clear();
+
+    if (!this.editorSelection) {
+      this.renderShapeToolGroup(parent);
+      this.renderConnectorToolGroup(parent);
+      this.renderDiagramGroup(parent);
+      this.renderViewRibbonGroup(parent);
+      return;
+    }
+
+    if (this.editorSelection.kind === "node") {
+      this.renderNodeShapeGroup(parent);
+      this.renderConnectorToolGroup(parent);
+      this.renderColorGroup(parent);
+      if (this.selectedNodeIds.size > 1) this.renderArrangeGroup(parent);
+      this.renderViewRibbonGroup(parent);
+      return;
+    }
+
+    this.renderConnectorStyleGroup(parent);
+    this.renderColorGroup(parent);
+    this.renderViewRibbonGroup(parent);
+  }
+
+  private renderShapeToolGroup(parent: HTMLElement): void {
     const shapesGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     shapesGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Shapes" });
     const shapeButtons = shapesGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
-    const shapes: Array<{ shape: NodeShape; label: string; icon: string }> = [
-      { shape: "rectangle", label: "Rectangle", icon: "square" },
-      { shape: "rounded", label: "Rounded", icon: "box" },
-      { shape: "stadium", label: "Stadium", icon: "pill" },
-      { shape: "diamond", label: "Decision", icon: "diamond" },
-      { shape: "circle", label: "Circle", icon: "circle" },
-    ];
-
-    for (const item of shapes) {
+    for (const item of this.shapeTools()) {
       const button = shapeButtons.createEl("button", {
         cls: "owen-mermaid-palette-item",
-        attr: { type: "button", "data-shape": item.shape, "aria-pressed": "false", title: `${item.label}: click, then click the canvas. You can also drag it onto the canvas.` },
+        attr: { type: "button", "data-shape": item.shape, "data-shape-action": "create", "aria-pressed": "false", title: `${item.label}: click, then click the canvas. You can also drag it onto the canvas.` },
       });
       setIcon(button, item.icon);
       button.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: item.label });
@@ -371,16 +417,33 @@ export class MermaidEditorModal extends Modal {
         else this.setSelectedShapeTool(item.shape);
       });
     }
+  }
+
+  private renderNodeShapeGroup(parent: HTMLElement): void {
+    const shapeGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
+    shapeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Shape" });
+    const shapeButtons = shapeGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
+    for (const item of this.shapeTools()) {
+      const button = shapeButtons.createEl("button", {
+        cls: "owen-mermaid-palette-item",
+        attr: { type: "button", "data-shape": item.shape, "data-shape-action": "apply", "aria-pressed": "false", title: item.label },
+      });
+      setIcon(button, item.icon);
+      button.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: item.label });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.applyShapeToSelectedNodes(item.shape);
+      });
+    }
+  }
+
+  private renderConnectorToolGroup(parent: HTMLElement): void {
+    if (this.diagram.nodes.length === 0) return;
 
     const connectorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     connectorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Connect" });
     const connectorButtons = connectorGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
-    const connectors: Array<{ style: EdgeStyle; label: string; icon: string }> = [
-      { style: "arrow", label: "Arrow", icon: "arrow-right" },
-      { style: "line", label: "Line", icon: "minus" },
-      { style: "dotted", label: "Dotted", icon: "ellipsis" },
-    ];
-    for (const item of connectors) {
+    for (const item of this.connectorTools(false)) {
       const button = connectorButtons.createEl("button", {
         cls: "owen-mermaid-palette-item owen-mermaid-connector-tool",
         attr: { type: "button", "data-connector-style": item.style, "aria-pressed": "false", title: `${item.label}: click, then choose two shapes.` },
@@ -392,11 +455,35 @@ export class MermaidEditorModal extends Modal {
         this.setConnectorTool(item.style);
       });
     }
+  }
+
+  private renderConnectorStyleGroup(parent: HTMLElement): void {
+    const group = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
+    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Line" });
+    const items = group.createDiv({ cls: "owen-mermaid-ribbon-items" });
+    for (const item of this.connectorTools(this.editorSelection?.kind === "freeLine")) {
+      const button = items.createEl("button", {
+        cls: "owen-mermaid-palette-item",
+        attr: { type: "button", "data-edge-style": item.style, "aria-pressed": "false", title: item.label, "aria-label": item.label },
+      });
+      setIcon(button, item.icon);
+      button.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: item.label });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.applyStyleToSelectedConnector(item.style);
+      });
+    }
+  }
+
+  private renderColorGroup(parent: HTMLElement): void {
+    if (this.availableColorTargets().length === 0) return;
 
     const colorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group owen-mermaid-color-group" });
     colorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Color" });
     this.renderColorRibbon(colorGroup);
+  }
 
+  private renderDiagramGroup(parent: HTMLElement): void {
     const diagramGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     diagramGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Diagram" });
     const direction = diagramGroup.createEl("select", { cls: "owen-mermaid-select owen-mermaid-direction-select" });
@@ -408,7 +495,9 @@ export class MermaidEditorModal extends Modal {
       this.diagram.direction = direction.value as FlowDirection;
       this.autoLayout();
     });
+  }
 
+  private renderArrangeGroup(parent: HTMLElement): void {
     const arrangeGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     arrangeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Arrange" });
     const arrangeButtons = arrangeGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
@@ -420,17 +509,15 @@ export class MermaidEditorModal extends Modal {
     this.createRibbonButton(arrangeButtons, "align-end-vertical", "Bottom", () => this.alignSelectedNodes("bottom"));
     this.createRibbonButton(arrangeButtons, "rows-3", "H Space", () => this.distributeSelectedNodes("horizontal"));
     this.createRibbonButton(arrangeButtons, "columns-3", "V Space", () => this.distributeSelectedNodes("vertical"));
+  }
 
+  private renderViewRibbonGroup(parent: HTMLElement): void {
     const viewGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     viewGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "View" });
     const viewButtons = viewGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     this.createRibbonButton(viewButtons, "scan", "Fit", () => this.fitDiagramToStage());
     this.createRibbonButton(viewButtons, "locate-fixed", "Center", () => this.centerSelectionInStage());
-
-    const snapGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    snapGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Snap" });
-    const snapItems = snapGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
-    const snapToggle = snapItems.createEl("button", { cls: "owen-mermaid-palette-item", attr: { type: "button", title: "Toggle snap", "aria-label": "Toggle snap", "aria-pressed": this.snapEnabled ? "true" : "false" } });
+    const snapToggle = viewButtons.createEl("button", { cls: "owen-mermaid-palette-item", attr: { type: "button", title: "Toggle snap", "aria-label": "Toggle snap", "aria-pressed": this.snapEnabled ? "true" : "false" } });
     setIcon(snapToggle, "magnet");
     snapToggle.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: "Snap" });
     snapToggle.toggleClass("is-active", this.snapEnabled);
@@ -440,13 +527,33 @@ export class MermaidEditorModal extends Modal {
       snapToggle.setAttribute("aria-pressed", this.snapEnabled ? "true" : "false");
       this.renderStatusBar();
     });
-    const snapSize = snapItems.createEl("select", { cls: "owen-mermaid-select owen-mermaid-snap-select" });
+    const snapSize = viewButtons.createEl("select", { cls: "owen-mermaid-select owen-mermaid-snap-select" });
     for (const value of [10, 20, 40]) snapSize.createEl("option", { text: String(value), value: String(value) });
     snapSize.value = String(this.snapSize);
     snapSize.addEventListener("change", () => {
       this.snapSize = Number(snapSize.value) || DEFAULT_SNAP_SIZE;
       this.renderStatusBar();
     });
+  }
+
+  private shapeTools(): Array<{ shape: NodeShape; label: string; icon: string }> {
+    return [
+      { shape: "rectangle", label: "Rectangle", icon: "square" },
+      { shape: "rounded", label: "Rounded", icon: "box" },
+      { shape: "stadium", label: "Stadium", icon: "pill" },
+      { shape: "diamond", label: "Decision", icon: "diamond" },
+      { shape: "circle", label: "Circle", icon: "circle" },
+    ];
+  }
+
+  private connectorTools(includeFreeLineStyles: boolean): Array<{ style: EdgeStyle; label: string; icon: string }> {
+    const styles: Array<{ style: EdgeStyle; label: string; icon: string }> = [
+      { style: "arrow", label: "Arrow", icon: "arrow-right" },
+      { style: "line", label: "Line", icon: "minus" },
+      { style: "dotted", label: "Dotted", icon: "ellipsis" },
+    ];
+    if (includeFreeLineStyles || this.diagram.syntax !== "sequenceDiagram") styles.push({ style: "thick", label: "Thick", icon: "grip-horizontal" });
+    return styles.filter((item) => includeFreeLineStyles || this.diagram.syntax !== "sequenceDiagram" || item.style === "arrow" || item.style === "dotted");
   }
 
   private renderColorRibbon(parent: HTMLElement): void {
@@ -696,6 +803,7 @@ export class MermaidEditorModal extends Modal {
   }
 
   private render(): void {
+    this.renderRibbon();
     this.renderCanvas();
     this.renderInspector();
     this.renderMinimap();
@@ -2104,6 +2212,44 @@ export class MermaidEditorModal extends Modal {
     this.renderCanvas();
   }
 
+  private applyShapeToSelectedNodes(shape: NodeShape): void {
+    const nodes = this.selectedNodes();
+    if (nodes.length === 0) return;
+    if (nodes.every((node) => node.shape === shape)) return;
+    this.recordHistory();
+    for (const node of nodes) node.shape = shape;
+    this.render();
+  }
+
+  private applyStyleToSelectedConnector(style: EdgeStyle): void {
+    const selection = this.editorSelection;
+    if (selection?.kind === "edge") {
+      const edge = this.diagram.edges.find((item) => item.id === selection.id);
+      if (!edge || edge.style === style) return;
+      this.setEdgeStyle(edge, style);
+      return;
+    }
+    if (selection?.kind === "freeLine") {
+      const line = this.diagram.freeLines.find((item) => item.id === selection.id);
+      if (!line || line.style === style) return;
+      this.setFreeLineStyle(line, style);
+    }
+  }
+
+  private selectedNodeShape(): NodeShape | undefined {
+    const nodes = this.selectedNodes();
+    if (nodes.length === 0) return undefined;
+    const [first] = nodes;
+    return first && nodes.every((node) => node.shape === first.shape) ? first.shape : undefined;
+  }
+
+  private selectedConnectorStyle(): EdgeStyle | undefined {
+    const selection = this.editorSelection;
+    if (selection?.kind === "edge") return this.diagram.edges.find((item) => item.id === selection.id)?.style;
+    if (selection?.kind === "freeLine") return this.diagram.freeLines.find((item) => item.id === selection.id)?.style;
+    return undefined;
+  }
+
   private handleConnectorToolNodeClick(nodeId: string): void {
     if (!this.selectedConnector) return;
     if (!this.connectingFromNodeId) {
@@ -2134,13 +2280,20 @@ export class MermaidEditorModal extends Modal {
   private updatePaletteState(): void {
     const buttons = this.modalEl.querySelectorAll<HTMLButtonElement>(".owen-mermaid-palette-item[data-shape]");
     for (const button of Array.from(buttons)) {
-      const active = button.dataset.shape === this.selectedShape;
+      const activeShape = button.dataset.shapeAction === "apply" ? this.selectedNodeShape() : this.selectedShape;
+      const active = button.dataset.shape === activeShape;
       button.toggleClass("is-active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     }
     const connectorButtons = this.modalEl.querySelectorAll<HTMLButtonElement>(".owen-mermaid-connector-tool[data-connector-style]");
     for (const button of Array.from(connectorButtons)) {
       const active = button.dataset.connectorStyle === this.selectedConnector?.style;
+      button.toggleClass("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    const styleButtons = this.modalEl.querySelectorAll<HTMLButtonElement>(".owen-mermaid-palette-item[data-edge-style]");
+    for (const button of Array.from(styleButtons)) {
+      const active = button.dataset.edgeStyle === this.selectedConnectorStyle();
       button.toggleClass("is-active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     }

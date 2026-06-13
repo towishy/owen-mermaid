@@ -268,9 +268,19 @@
   display: flex;
   gap: 8px;
   min-height: 70px;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: hidden;
   padding: 8px 12px 9px;
+  scrollbar-width: thin;
+}
+
+.owen-mermaid-editor-ribbon::-webkit-scrollbar {
+  height: 6px;
+}
+
+.owen-mermaid-editor-ribbon::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.34);
+  border-radius: 999px;
 }
 
 .owen-mermaid-ribbon-group {
