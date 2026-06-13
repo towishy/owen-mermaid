@@ -31,6 +31,20 @@ type ConnectionHandle = "top" | "right" | "bottom" | "left";
 type ResizeHandle = "nw" | "ne" | "se" | "sw";
 type AlignmentMode = "left" | "centerX" | "right" | "top" | "middleY" | "bottom";
 type DistributionMode = "horizontal" | "vertical";
+type ColorTarget = "nodeFill" | "nodeStroke" | "nodeText" | "edgeStroke" | "edgeText";
+
+const COLOR_TARGETS: Array<{ value: ColorTarget; label: string; icon: string }> = [
+  { value: "nodeFill", label: "Shape fill", icon: "paint-bucket" },
+  { value: "nodeStroke", label: "Shape line", icon: "square" },
+  { value: "nodeText", label: "Shape text", icon: "type" },
+  { value: "edgeStroke", label: "Line / arrow", icon: "minus" },
+  { value: "edgeText", label: "Line label", icon: "type" },
+];
+const COLOR_SWATCHES = ["#ffffff", "#f8fafc", "#dbeafe", "#dcfce7", "#fef3c7", "#ffe4e6", "#e9d5ff", "#172033", "#64748b", "#0ea5e9", "#22c55e", "#f59e0b", "#f43f5e", "#8b5cf6"];
+const DEFAULT_NODE_FILL_COLOR = "#ffffff";
+const DEFAULT_NODE_STROKE_COLOR = "#94a3b8";
+const DEFAULT_TEXT_COLOR = "#172033";
+const DEFAULT_EDGE_STROKE_COLOR = "#64748b";
 
 interface ResizeState {
   nodeId: string;
@@ -62,6 +76,13 @@ interface LabelDragState {
   startOffsetY: number;
 }
 
+interface ModalResizeState {
+  startPointerX: number;
+  startPointerY: number;
+  startWidth: number;
+  startHeight: number;
+}
+
 export class MermaidEditorModal extends Modal {
   private diagram: FlowDiagram;
   private savedSource: string;
@@ -91,9 +112,11 @@ export class MermaidEditorModal extends Modal {
   private removeResizeListeners?: () => void;
   private removeFreeLineListeners?: () => void;
   private removeLabelDragListeners?: () => void;
+  private removeModalResizeListeners?: () => void;
   private resizeState?: ResizeState;
   private reconnectState?: ReconnectState;
   private labelDragState?: LabelDragState;
+  private modalResizeState?: ModalResizeState;
   private suppressNextCanvasClick = false;
   private suppressNextPaletteClick = false;
   private suppressClosePrompt = false;
@@ -104,6 +127,11 @@ export class MermaidEditorModal extends Modal {
   private snapEnabled = true;
   private snapSize = DEFAULT_SNAP_SIZE;
   private editorZoom = 1;
+  private colorTarget: ColorTarget = "nodeFill";
+  private colorTargetSelect?: HTMLSelectElement;
+  private colorInput?: HTMLInputElement;
+  private colorResetButton?: HTMLButtonElement;
+  private readonly colorTargetButtons = new Map<ColorTarget, HTMLButtonElement>();
   private readonly selectedNodeIds = new Set<string>();
   private preserveNodeSelection = false;
   private draggedNodeStarts = new Map<string, CanvasPoint>();
@@ -195,6 +223,7 @@ export class MermaidEditorModal extends Modal {
     this.contentEl.empty();
 
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-editor-shell" });
+    this.createModalResizeHandle(shell);
     const header = shell.createDiv({ cls: "owen-mermaid-editor-header" });
     header.createEl("div", { cls: "owen-mermaid-editor-title", text: "Owen Mermaid" });
 
@@ -239,6 +268,7 @@ export class MermaidEditorModal extends Modal {
     this.endConnectionDrag();
     this.endFreeLineDraw();
     this.endLabelDrag();
+    this.endModalResize();
     this.modalEl.removeEventListener("keydown", this.handleEditorKeydown);
     this.modalEl.removeEventListener("keyup", this.handleEditorKeyup);
     this.contentEl.empty();
@@ -357,6 +387,10 @@ export class MermaidEditorModal extends Modal {
       });
     }
 
+    const colorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group owen-mermaid-color-group" });
+    colorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Color" });
+    this.renderColorRibbon(colorGroup);
+
     const diagramGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     diagramGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Diagram" });
     const direction = diagramGroup.createEl("select", { cls: "owen-mermaid-select owen-mermaid-direction-select" });
@@ -409,6 +443,135 @@ export class MermaidEditorModal extends Modal {
     });
   }
 
+  private renderColorRibbon(parent: HTMLElement): void {
+    const row = parent.createDiv({ cls: "owen-mermaid-color-row" });
+    this.colorTargetSelect = row.createEl("select", { cls: "owen-mermaid-select owen-mermaid-color-target" });
+    for (const target of COLOR_TARGETS) this.colorTargetSelect.createEl("option", { text: target.label, value: target.value });
+    this.colorTargetSelect.value = this.colorTarget;
+    this.colorTargetSelect.addEventListener("change", () => {
+      this.colorTarget = this.colorTargetSelect?.value as ColorTarget;
+      this.updateColorControls();
+    });
+
+    this.colorInput = row.createEl("input", { cls: "owen-mermaid-color-input", attr: { type: "color", title: "Apply selected color" } });
+    this.colorInput.addEventListener("input", () => this.applySelectedColor(this.colorTarget, this.colorInput?.value));
+
+    this.colorResetButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: "Clear selected color", "aria-label": "Clear selected color" } });
+    setIcon(this.colorResetButton, "rotate-ccw");
+    this.colorResetButton.addEventListener("click", () => this.applySelectedColor(this.colorTarget, undefined));
+
+    this.colorTargetButtons.clear();
+    const targetIcons = parent.createDiv({ cls: "owen-mermaid-color-target-icons" });
+    for (const target of COLOR_TARGETS) {
+      const button = targetIcons.createEl("button", { cls: "owen-mermaid-color-target-button", attr: { type: "button", title: target.label, "aria-label": target.label, "aria-pressed": "false" } });
+      setIcon(button, target.icon);
+      button.addEventListener("click", () => {
+        this.colorTarget = target.value;
+        this.updateColorControls();
+      });
+      this.colorTargetButtons.set(target.value, button);
+    }
+
+    const swatches = parent.createDiv({ cls: "owen-mermaid-color-swatches" });
+    for (const color of COLOR_SWATCHES) {
+      const swatch = swatches.createEl("button", { cls: "owen-mermaid-color-swatch", attr: { type: "button", title: color, "aria-label": `Apply ${color}` } });
+      swatch.style.setProperty("--owen-mermaid-swatch", color);
+      swatch.addEventListener("click", () => this.applySelectedColor(this.colorTarget, color));
+    }
+    this.updateColorControls();
+  }
+
+  private updateColorControls(): void {
+    if (!this.colorTargetSelect || !this.colorInput || !this.colorResetButton) return;
+    const available = this.availableColorTargets();
+    if (!available.includes(this.colorTarget)) this.colorTarget = available[0] ?? "nodeFill";
+
+    for (const option of Array.from(this.colorTargetSelect.options)) {
+      option.disabled = !available.includes(option.value as ColorTarget);
+    }
+    this.colorTargetSelect.value = this.colorTarget;
+
+    const enabled = available.length > 0;
+    const color = this.getSelectedColor(this.colorTarget) ?? this.defaultColorForTarget(this.colorTarget);
+    this.colorInput.value = color;
+    this.colorInput.disabled = !enabled;
+    this.colorResetButton.disabled = !enabled || !this.getSelectedColor(this.colorTarget);
+    for (const target of COLOR_TARGETS) {
+      const button = this.colorTargetButtons.get(target.value);
+      if (!button) continue;
+      const targetAvailable = available.includes(target.value);
+      const targetColor = this.getSelectedColor(target.value);
+      const displayColor = targetColor ?? this.defaultColorForTarget(target.value);
+      button.disabled = !targetAvailable;
+      button.toggleClass("is-active", target.value === this.colorTarget);
+      button.toggleClass("has-color", Boolean(targetColor));
+      button.style.setProperty("--owen-mermaid-target-color", displayColor);
+      button.setAttribute("aria-pressed", target.value === this.colorTarget ? "true" : "false");
+      button.setAttribute("title", targetColor ? `${target.label}: ${targetColor}` : `${target.label}: default`);
+    }
+    this.modalEl.querySelectorAll<HTMLButtonElement>(".owen-mermaid-color-swatch").forEach((button) => {
+      button.disabled = !enabled;
+      button.toggleClass("is-active", button.title.toLowerCase() === (this.getSelectedColor(this.colorTarget) ?? "").toLowerCase());
+    });
+  }
+
+  private availableColorTargets(): ColorTarget[] {
+    if (this.editorSelection?.kind === "node") return ["nodeFill", "nodeStroke", "nodeText"];
+    if (this.editorSelection?.kind === "edge" || this.editorSelection?.kind === "freeLine") return ["edgeStroke", "edgeText"];
+    return [];
+  }
+
+  private getSelectedColor(target: ColorTarget): string | undefined {
+    const selection = this.editorSelection;
+    if (selection?.kind === "node") {
+      const node = this.diagram.nodes.find((item) => item.id === selection.id);
+      if (!node) return undefined;
+      if (target === "nodeFill") return node.fillColor;
+      if (target === "nodeStroke") return node.strokeColor;
+      if (target === "nodeText") return node.textColor;
+      return undefined;
+    }
+
+    const edgeLike = selection?.kind === "edge" ? this.diagram.edges.find((item) => item.id === selection.id) : selection?.kind === "freeLine" ? this.diagram.freeLines.find((item) => item.id === selection.id) : undefined;
+    if (!edgeLike) return undefined;
+    if (target === "edgeStroke") return edgeLike.strokeColor;
+    if (target === "edgeText") return edgeLike.textColor;
+    return undefined;
+  }
+
+  private defaultColorForTarget(target: ColorTarget): string {
+    if (target === "nodeFill") return DEFAULT_NODE_FILL_COLOR;
+    if (target === "nodeStroke") return DEFAULT_NODE_STROKE_COLOR;
+    if (target === "edgeStroke") return DEFAULT_EDGE_STROKE_COLOR;
+    return DEFAULT_TEXT_COLOR;
+  }
+
+  private applySelectedColor(target: ColorTarget, color: string | undefined): void {
+    const normalized = color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined;
+    const selection = this.editorSelection;
+    if (!selection) return;
+
+    if (selection.kind === "node") {
+      const nodes = this.selectedNodeIds.size > 1 ? this.selectedNodes() : this.diagram.nodes.filter((node) => node.id === selection.id);
+      if (nodes.length === 0 || !["nodeFill", "nodeStroke", "nodeText"].includes(target)) return;
+      this.recordHistory();
+      for (const node of nodes) {
+        if (target === "nodeFill") node.fillColor = normalized;
+        if (target === "nodeStroke") node.strokeColor = normalized;
+        if (target === "nodeText") node.textColor = normalized;
+      }
+      this.render();
+      return;
+    }
+
+    const item = selection.kind === "edge" ? this.diagram.edges.find((edge) => edge.id === selection.id) : this.diagram.freeLines.find((line) => line.id === selection.id);
+    if (!item || !["edgeStroke", "edgeText"].includes(target)) return;
+    this.recordHistory();
+    if (target === "edgeStroke") item.strokeColor = normalized;
+    if (target === "edgeText") item.textColor = normalized;
+    this.render();
+  }
+
   private bindCanvas(canvas: SVGSVGElement): void {
     canvas.addEventListener("pointermove", (event) => {
       this.updateSelectedShapePreview(event);
@@ -448,6 +611,7 @@ export class MermaidEditorModal extends Modal {
     this.renderMinimap();
     this.renderStatusBar();
     this.updateCodePreview();
+    this.updateColorControls();
   }
 
   private renderCanvas(): void {
@@ -461,11 +625,8 @@ export class MermaidEditorModal extends Modal {
       return;
     }
 
-    const defs = this.canvas.createSvg("defs");
-    const marker = defs.createSvg("marker", {
-      attr: { id: "owen-mermaid-arrow", markerWidth: "10", markerHeight: "10", refX: "9", refY: "3", orient: "auto", markerUnits: "strokeWidth" },
-    });
-    marker.createSvg("path", { attr: { d: "M0,0 L0,6 L9,3 z", class: "owen-mermaid-arrow-head" } });
+    this.canvas.createSvg("defs");
+    this.createArrowMarker(DEFAULT_EDGE_STROKE_COLOR, "owen-mermaid-arrow");
 
     const edges = this.canvas.createSvg("g", { cls: "owen-mermaid-edges" });
     for (const edge of this.diagram.edges) this.renderEdge(edges, edge);
@@ -482,11 +643,8 @@ export class MermaidEditorModal extends Modal {
 
   private renderSequenceCanvas(): void {
     if (!this.canvas) return;
-    const defs = this.canvas.createSvg("defs");
-    const marker = defs.createSvg("marker", {
-      attr: { id: "owen-mermaid-arrow", markerWidth: "10", markerHeight: "10", refX: "9", refY: "3", orient: "auto", markerUnits: "strokeWidth" },
-    });
-    marker.createSvg("path", { attr: { d: "M0,0 L0,6 L9,3 z", class: "owen-mermaid-arrow-head" } });
+    this.canvas.createSvg("defs");
+    this.createArrowMarker(DEFAULT_EDGE_STROKE_COLOR, "owen-mermaid-arrow");
 
     const participants = this.canvas.createSvg("g", { cls: "owen-mermaid-sequence-participants" });
     const messages = this.canvas.createSvg("g", { cls: "owen-mermaid-sequence-messages" });
@@ -496,7 +654,7 @@ export class MermaidEditorModal extends Modal {
       const selected = this.isNodeSelected(node.id);
       const lifeline = participants.createSvg("line", {
         cls: "owen-mermaid-sequence-lifeline",
-        attr: { x1: String(node.x), y1: String(SEQUENCE_TOP_Y + node.height / 2), x2: String(node.x), y2: String(bottomY - node.height / 2) },
+        attr: { x1: String(node.x), y1: String(SEQUENCE_TOP_Y + node.height / 2), x2: String(node.x), y2: String(bottomY - node.height / 2), ...(node.strokeColor ? { style: `stroke: ${node.strokeColor}` } : {}) },
       });
       if (selected) lifeline.addClass("is-selected");
       lifeline.addEventListener("click", (event) => {
@@ -545,8 +703,8 @@ export class MermaidEditorModal extends Modal {
     });
     group.addEventListener("contextmenu", (event) => this.showNodeMenu(event, node));
     group.addEventListener("dblclick", () => this.promptNodeLabel(node));
-    group.createSvg("rect", { attr: { x: String(-node.width / 2), y: String(-node.height / 2), width: String(node.width), height: String(node.height), rx: "7" } });
-    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle" } }).setText(node.label);
+    group.createSvg("rect", { attr: { x: String(-node.width / 2), y: String(-node.height / 2), width: String(node.width), height: String(node.height), rx: "7", ...this.nodeStyleAttrs(node) } });
+    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor) } }).setText(node.label);
   }
 
   private renderSequenceMessage(parent: SVGGElement, edge: DiagramEdge): void {
@@ -565,9 +723,10 @@ export class MermaidEditorModal extends Modal {
     if (edge.style === "dotted") group.addClass("is-dotted");
     if (selected) group.addClass("is-selected");
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: `M ${startX} ${y} L ${endX} ${y}`, fill: "none" } });
-    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: `M ${startX} ${y} L ${endX} ${y}`, fill: "none", "marker-end": "url(#owen-mermaid-arrow)" } });
+    const markerId = edge.strokeColor ? this.createArrowMarker(edge.strokeColor) : "owen-mermaid-arrow";
+    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: `M ${startX} ${y} L ${endX} ${y}`, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor), "marker-end": `url(#${markerId})` } });
     group
-      .createSvg("text", { cls: "owen-mermaid-sequence-message-label", attr: { x: String(labelX), y: String(y - 16), "text-anchor": "middle" } })
+      .createSvg("text", { cls: "owen-mermaid-sequence-message-label", attr: { x: String(labelX), y: String(y - 16), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor) } })
       .setText(edge.label);
     group.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -617,24 +776,52 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("dblclick", () => this.promptNodeLabel(node));
 
     this.createShape(group, node);
-    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle" } }).setText(node.label);
+    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor) } }).setText(node.label);
     if (selected || connectingSource || connectTarget) this.renderNodeHandles(group, node, connectTarget ? this.connectTargetHandle : undefined, !connectTarget);
   }
 
   private createShape(group: SVGGElement, node: DiagramNode): void {
     const width = node.width;
     const height = node.height;
+    const styleAttrs = this.nodeStyleAttrs(node);
     if (node.shape === "diamond") {
-      group.createSvg("polygon", { attr: { points: `0,${-height / 2} ${width / 2},0 0,${height / 2} ${-width / 2},0` } });
+      group.createSvg("polygon", { attr: { points: `0,${-height / 2} ${width / 2},0 0,${height / 2} ${-width / 2},0`, ...styleAttrs } });
       return;
     }
     if (node.shape === "circle") {
-      group.createSvg("ellipse", { attr: { cx: "0", cy: "0", rx: String(width / 2), ry: String(height / 2) } });
+      group.createSvg("ellipse", { attr: { cx: "0", cy: "0", rx: String(width / 2), ry: String(height / 2), ...styleAttrs } });
       return;
     }
 
     const radius = node.shape === "rounded" ? Math.min(12, height / 2) : node.shape === "stadium" ? height / 2 : 6;
-    group.createSvg("rect", { attr: { x: String(-width / 2), y: String(-height / 2), width: String(width), height: String(height), rx: String(radius) } });
+    group.createSvg("rect", { attr: { x: String(-width / 2), y: String(-height / 2), width: String(width), height: String(height), rx: String(radius), ...styleAttrs } });
+  }
+
+  private nodeStyleAttrs(node: DiagramNode): Record<string, string> {
+    const styles = [
+      node.fillColor ? `fill: ${node.fillColor}` : "",
+      node.strokeColor ? `stroke: ${node.strokeColor}` : "",
+    ].filter(Boolean);
+    return styles.length > 0 ? { style: styles.join("; ") } : {};
+  }
+
+  private strokeStyleAttrs(color: string | undefined): Record<string, string> {
+    return color ? { style: `stroke: ${color}` } : {};
+  }
+
+  private textStyleAttrs(color: string | undefined): Record<string, string> {
+    return color ? { style: `fill: ${color}` } : {};
+  }
+
+  private createArrowMarker(color: string, id = `owen-mermaid-arrow-${color.replace(/[^0-9a-f]/gi, "").toLowerCase()}`): string {
+    if (!this.canvas) return id;
+    if (this.canvas.querySelector(`#${id}`)) return id;
+    const defs = this.canvas.querySelector("defs") ?? this.canvas.createSvg("defs");
+    const marker = defs.createSvg("marker", {
+      attr: { id, markerWidth: "10", markerHeight: "10", refX: "9", refY: "3", orient: "auto", markerUnits: "strokeWidth" },
+    });
+    marker.createSvg("path", { attr: { d: "M0,0 L0,6 L9,3 z", class: "owen-mermaid-arrow-head", style: `fill: ${color}` } });
+    return id;
   }
 
   private renderNodeHandles(group: SVGGElement, node: DiagramNode, snapHandle?: ConnectionHandle, includeResize = true): void {
@@ -717,7 +904,8 @@ export class MermaidEditorModal extends Modal {
     const endpoints = this.getEdgeEndpoints(from, to);
     const path = edge.renderedPath ?? this.createConnectorPath(endpoints.from, endpoints.to, edge.route);
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: path, fill: "none" } });
-    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...(edge.style === "line" ? {} : { "marker-end": "url(#owen-mermaid-arrow)" }) } });
+    const markerId = edge.strokeColor ? this.createArrowMarker(edge.strokeColor) : "owen-mermaid-arrow";
+    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor), ...(edge.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
     group.addEventListener("click", (event) => {
       event.stopPropagation();
       this.setSelectedShapeTool(undefined);
@@ -727,7 +915,7 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("contextmenu", (event) => this.showEdgeMenu(event, edge));
     if (edge.label) {
       const label = this.getLabelPoint(endpoints.from, endpoints.to, edge.labelOffsetX, edge.labelOffsetY);
-      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle" } });
+      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor) } });
       text.setText(edge.label);
       text.addEventListener("pointerdown", (event) => this.beginLabelDrag("edge", edge.id, event));
     }
@@ -745,10 +933,11 @@ export class MermaidEditorModal extends Modal {
     group.addClass(`is-${line.style}`);
     if (selected) group.addClass("is-selected");
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: path, fill: "none" } });
-    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...(line.style === "line" ? {} : { "marker-end": "url(#owen-mermaid-arrow)" }) } });
+    const markerId = line.strokeColor ? this.createArrowMarker(line.strokeColor) : "owen-mermaid-arrow";
+    group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(line.strokeColor), ...(line.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
     if (line.label) {
       const label = this.getLabelPoint({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.labelOffsetX, line.labelOffsetY);
-      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle" } });
+      const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(line.textColor) } });
       text.setText(line.label);
       text.addEventListener("pointerdown", (event) => this.beginLabelDrag("freeLine", line.id, event));
     }
@@ -1319,9 +1508,9 @@ export class MermaidEditorModal extends Modal {
     const nextSource = this.currentSource();
     await this.onSave(nextSource);
     this.savedSource = nextSource;
-    this.suppressClosePrompt = true;
+    this.suppressClosePrompt = false;
     new Notice("Mermaid diagram updated.");
-    this.close();
+    this.render();
   }
 
   private updateCodePreview(): void {
@@ -1785,6 +1974,66 @@ export class MermaidEditorModal extends Modal {
     this.createButton(toolbar, "rotate-ccw", "Reset zoom", () => this.setEditorZoom(1));
   }
 
+  private createModalResizeHandle(shell: HTMLElement): void {
+    const handle = shell.createEl("button", { cls: "owen-mermaid-window-resize-handle", attr: { type: "button", title: "Resize editor", "aria-label": "Resize editor" } });
+    setIcon(handle, "grip");
+    handle.addEventListener("pointerdown", (event) => this.beginModalResize(event));
+  }
+
+  private beginModalResize(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.endModalResize();
+
+    const rect = this.modalEl.getBoundingClientRect();
+    this.modalResizeState = {
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height,
+    };
+    this.modalEl.addClass("is-window-resizing");
+
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    const move = (moveEvent: PointerEvent) => this.updateModalResize(moveEvent);
+    const up = () => this.endModalResize();
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up, { once: true });
+    win.addEventListener("pointercancel", up, { once: true });
+    this.removeModalResizeListeners = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("pointercancel", up);
+    };
+  }
+
+  private updateModalResize(event: PointerEvent): void {
+    const state = this.modalResizeState;
+    if (!state) return;
+
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    const maxWidth = Math.max(320, win.innerWidth - 36);
+    const maxHeight = Math.max(320, win.innerHeight - 36);
+    const minWidth = Math.min(760, maxWidth);
+    const minHeight = Math.min(520, maxHeight);
+    const width = this.clamp(state.startWidth + event.clientX - state.startPointerX, minWidth, maxWidth);
+    const height = this.clamp(state.startHeight + event.clientY - state.startPointerY, minHeight, maxHeight);
+
+    this.modalEl.style.width = `${Math.round(width)}px`;
+    this.modalEl.style.height = `${Math.round(height)}px`;
+    this.modalEl.style.maxWidth = `${maxWidth}px`;
+    this.modalEl.style.maxHeight = `${maxHeight}px`;
+    this.renderMinimap();
+  }
+
+  private endModalResize(): void {
+    this.removeModalResizeListeners?.();
+    this.removeModalResizeListeners = undefined;
+    this.modalResizeState = undefined;
+    this.modalEl.removeClass("is-window-resizing");
+  }
+
   private setEditorZoom(nextZoom: number): void {
     const next = this.clamp(nextZoom, MIN_EDITOR_ZOOM, MAX_EDITOR_ZOOM);
     if (next === this.editorZoom) return;
@@ -1863,12 +2112,12 @@ export class MermaidEditorModal extends Modal {
     this.minimap.empty();
     this.minimap.createSvg("rect", { cls: "owen-mermaid-minimap-bg", attr: { x: "0", y: "0", width: String(MINIMAP_WIDTH), height: String(MINIMAP_HEIGHT), rx: "8" } });
     for (const line of this.diagram.freeLines) {
-      this.minimap.createSvg("line", { cls: "owen-mermaid-minimap-line", attr: { x1: String(mapX(line.x1)), y1: String(mapY(line.y1)), x2: String(mapX(line.x2)), y2: String(mapY(line.y2)) } });
+      this.minimap.createSvg("line", { cls: "owen-mermaid-minimap-line", attr: { x1: String(mapX(line.x1)), y1: String(mapY(line.y1)), x2: String(mapX(line.x2)), y2: String(mapY(line.y2)), ...this.strokeStyleAttrs(line.strokeColor) } });
     }
     for (const node of this.diagram.nodes) {
       const rect = this.minimap.createSvg("rect", {
         cls: "owen-mermaid-minimap-node",
-        attr: { x: String(mapX(node.x - node.width / 2)), y: String(mapY(node.y - node.height / 2)), width: String(Math.max(3, node.width * scale)), height: String(Math.max(3, node.height * scale)), rx: "2" },
+        attr: { x: String(mapX(node.x - node.width / 2)), y: String(mapY(node.y - node.height / 2)), width: String(Math.max(3, node.width * scale)), height: String(Math.max(3, node.height * scale)), rx: "2", ...this.nodeStyleAttrs(node) },
       });
       if (this.isNodeSelected(node.id)) rect.addClass("is-selected");
     }

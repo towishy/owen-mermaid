@@ -7,9 +7,12 @@ const STATE_NODE_PATTERN = /^\s*state\s+"([^"]+)"\s+as\s+([A-Za-z][\w-]*)\s*$/i;
 const SEQUENCE_DIAGRAM_PATTERN = /^sequenceDiagram\s*$/i;
 const SEQUENCE_PARTICIPANT_PATTERN = /^\s*(?:participant|actor)\s+([A-Za-z][\w-]*)(?:\s+as\s+(.+))?\s*$/i;
 const SEQUENCE_MESSAGE_PATTERN = /^\s*([A-Za-z][\w-]*?)\s*(-{1,2}>>|-->|->)\s*([A-Za-z][\w-]*)\s*:\s*(.+)\s*$/;
-const LABELLED_EDGE_PATTERN = /^\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*(--|-.|==)\s*(.+?)\s*(-->|---|\.->|==>)\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*$/;
-const EDGE_PATTERN = /^\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*(?:(-->|---|==>|-.->)\s*(?:\|([^|]+)\|)?|--\s*([^\-|]+?)\s*-->)\s*([A-Za-z][\w-]*)(?:\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\}))?\s*$/;
-const NODE_PATTERN = /^\s*([A-Za-z][\w-]*)\s*(\[[^\]]+\]|\([^)]*\)|\{[^}]+\})\s*$/;
+const FLOW_NODE_SHAPE_PATTERN = String.raw`(?:\[[^\]]+\]|\(\([^)]*\)\)|\([^)]*\)|\{[^}]+\})`;
+const LABELLED_EDGE_PATTERN = new RegExp(String.raw`^\s*([A-Za-z][\w-]*)(?:\s*(${FLOW_NODE_SHAPE_PATTERN}))?\s*(--|-.|==)\s*(.+?)\s*(-->|---|\.->|==>)\s*([A-Za-z][\w-]*)(?:\s*(${FLOW_NODE_SHAPE_PATTERN}))?\s*$`);
+const EDGE_PATTERN = new RegExp(String.raw`^\s*([A-Za-z][\w-]*)(?:\s*(${FLOW_NODE_SHAPE_PATTERN}))?\s*(?:(-->|---|==>|-.->)\s*(?:\|([^|]+)\|)?|--\s*([^\-|]+?)\s*-->)\s*([A-Za-z][\w-]*)(?:\s*(${FLOW_NODE_SHAPE_PATTERN}))?\s*$`);
+const NODE_PATTERN = new RegExp(String.raw`^\s*([A-Za-z][\w-]*)\s*(${FLOW_NODE_SHAPE_PATTERN})\s*$`);
+const NODE_STYLE_PATTERN = /^\s*style\s+([A-Za-z][\w-]*)\s+(.+)\s*$/i;
+const LINK_STYLE_PATTERN = /^\s*linkStyle\s+(\d+)\s+(.+)\s*$/i;
 const INIT_DIRECTIVE_PATTERN = /^%%\{[\s\S]*\}%%$/;
 const FLOWCHART_PRESERVED_LINE_PATTERN = /^\s*(?:classDef|class|style|click|linkStyle)\b/i;
 const SUBGRAPH_START_PATTERN = /^\s*subgraph\b/i;
@@ -25,12 +28,17 @@ interface NodeLayoutMeta {
   y?: number;
   width?: number;
   height?: number;
+  fillColor?: string;
+  strokeColor?: string;
+  textColor?: string;
 }
 
 interface EdgeLayoutMeta {
   route?: EdgeRoute;
   labelOffsetX?: number;
   labelOffsetY?: number;
+  strokeColor?: string;
+  textColor?: string;
 }
 
 interface LayoutMeta {
@@ -97,6 +105,14 @@ export function parseFlowchart(source: string, fallbackDirection: FlowDirection)
       diagram.direction = header[1].toUpperCase() as FlowDirection;
       sawHeader = true;
       continue;
+    }
+
+    if (diagram.syntax === "flowchart") {
+      const nodeStyle = line.match(NODE_STYLE_PATTERN);
+      if (nodeStyle && applyNodeColorStyle(nodeMap, nodeStyle[1], nodeStyle[2])) continue;
+
+      const linkStyle = line.match(LINK_STYLE_PATTERN);
+      if (linkStyle && applyEdgeColorStyle(diagram.edges, Number(linkStyle[1]), linkStyle[2])) continue;
     }
 
     if (diagram.syntax === "flowchart" && FLOWCHART_PRESERVED_LINE_PATTERN.test(line)) {
@@ -240,6 +256,9 @@ export function generateFlowchart(diagram: FlowDiagram, includeLayout = true): s
   for (const edge of diagram.edges) {
     lines.push(`  ${edge.from} ${formatEdge(edge)} ${edge.to}`);
   }
+
+  const styleLines = serializeFlowchartStyleLines(diagram);
+  if (styleLines.length > 0) lines.push("", ...styleLines);
 
   if (diagram.unsupportedLines.length > 0) {
     lines.push("", "  %% Preserved unsupported lines");
@@ -460,18 +479,24 @@ function applyLayoutMeta(nodes: DiagramNode[], meta: LayoutMeta | null): Diagram
       y: readFiniteNumber(layout.y, node.y),
       width: Math.max(64, readFiniteNumber(layout.width, node.width)),
       height: Math.max(40, readFiniteNumber(layout.height, node.height)),
+      fillColor: readColor(layout.fillColor, node.fillColor),
+      strokeColor: readColor(layout.strokeColor, node.strokeColor),
+      textColor: readColor(layout.textColor, node.textColor),
     };
   });
 }
 
 function serializeLayoutMeta(diagram: FlowDiagram): string {
-  const nodes: Record<string, Required<NodeLayoutMeta>> = {};
+  const nodes: Record<string, NodeLayoutMeta> = {};
   for (const node of diagram.nodes) {
     nodes[node.id] = {
       x: Math.round(node.x),
       y: Math.round(node.y),
       width: Math.round(node.width),
       height: Math.round(node.height),
+      ...(node.fillColor ? { fillColor: node.fillColor } : {}),
+      ...(node.strokeColor ? { strokeColor: node.strokeColor } : {}),
+      ...(node.textColor ? { textColor: node.textColor } : {}),
     };
   }
   const meta: LayoutMeta = { nodes };
@@ -489,6 +514,8 @@ function applyEdgeMeta(edges: DiagramEdge[], meta: LayoutMeta | null): void {
     edge.route = readEdgeRoute(layout.route, edge.route);
     edge.labelOffsetX = readFiniteNumber(layout.labelOffsetX, edge.labelOffsetX ?? 0);
     edge.labelOffsetY = readFiniteNumber(layout.labelOffsetY, edge.labelOffsetY ?? 0);
+    edge.strokeColor = readColor(layout.strokeColor, edge.strokeColor);
+    edge.textColor = readColor(layout.textColor, edge.textColor);
   }
 }
 
@@ -498,9 +525,11 @@ function serializeEdgeMeta(edges: DiagramEdge[]): Record<string, EdgeLayoutMeta>
     const route = readEdgeRoute(edge.route, "curve");
     const labelOffsetX = Math.round(readFiniteNumber(edge.labelOffsetX, 0));
     const labelOffsetY = Math.round(readFiniteNumber(edge.labelOffsetY, 0));
-    const hasMeta = route !== "curve" || labelOffsetX !== 0 || labelOffsetY !== 0;
+    const strokeColor = readColor(edge.strokeColor, undefined);
+    const textColor = readColor(edge.textColor, undefined);
+    const hasMeta = route !== "curve" || labelOffsetX !== 0 || labelOffsetY !== 0 || Boolean(strokeColor || textColor);
     if (!hasMeta) continue;
-    meta[edge.id] = { route, labelOffsetX, labelOffsetY };
+    meta[edge.id] = { route, labelOffsetX, labelOffsetY, ...(strokeColor ? { strokeColor } : {}), ...(textColor ? { textColor } : {}) };
   }
   return meta;
 }
@@ -520,6 +549,8 @@ function readFreeLines(meta: LayoutMeta | null): DiagramFreeLine[] {
       route: readEdgeRoute(line.route, "curve"),
       labelOffsetX: readFiniteNumber(line.labelOffsetX, 0),
       labelOffsetY: readFiniteNumber(line.labelOffsetY, 0),
+      strokeColor: readColor(line.strokeColor, undefined),
+      textColor: readColor(line.textColor, undefined),
     }));
 }
 
@@ -529,6 +560,74 @@ function readEdgeRoute(value: unknown, fallback: EdgeRoute | undefined): EdgeRou
 
 function readFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function applyNodeColorStyle(nodeMap: Map<string, DiagramNode>, id: string, style: string): boolean {
+  const node = nodeMap.get(id);
+  if (!node) return false;
+  const colors = parseColorStyle(style, true);
+  if (!colors) return false;
+  node.fillColor = colors.fillColor ?? node.fillColor;
+  node.strokeColor = colors.strokeColor ?? node.strokeColor;
+  node.textColor = colors.textColor ?? node.textColor;
+  return true;
+}
+
+function applyEdgeColorStyle(edges: DiagramEdge[], index: number, style: string): boolean {
+  if (!Number.isInteger(index) || index < 0) return false;
+  const edge = edges[index];
+  if (!edge) return false;
+  const colors = parseColorStyle(style, false);
+  if (!colors) return false;
+  edge.strokeColor = colors.strokeColor ?? edge.strokeColor;
+  edge.textColor = colors.textColor ?? edge.textColor;
+  return true;
+}
+
+function parseColorStyle(style: string, allowFill: boolean): { fillColor?: string; strokeColor?: string; textColor?: string } | null {
+  const colors: { fillColor?: string; strokeColor?: string; textColor?: string } = {};
+  const declarations = style.split(/[,;]/).map((item) => item.trim()).filter(Boolean);
+  if (declarations.length === 0) return null;
+  for (const declaration of declarations) {
+    const match = declaration.match(/^([A-Za-z-]+)\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?)$/i);
+    if (!match) return null;
+    const property = match[1].toLowerCase();
+    const color = match[2];
+    if (property === "fill" && allowFill) colors.fillColor = color;
+    else if (property === "stroke") colors.strokeColor = color;
+    else if (property === "color") colors.textColor = color;
+    else return null;
+  }
+  return colors;
+}
+
+function readColor(value: unknown, fallback: string | undefined): string | undefined {
+  return typeof value === "string" && isColorValue(value) ? value : fallback;
+}
+
+function isColorValue(value: string): boolean {
+  return /^#[0-9a-f]{6}$/i.test(value) || /^#[0-9a-f]{3}$/i.test(value);
+}
+
+function serializeFlowchartStyleLines(diagram: FlowDiagram): string[] {
+  if (diagram.syntax !== "flowchart") return [];
+  const lines: string[] = [];
+  for (const node of diagram.nodes) {
+    const styles = [
+      node.fillColor ? `fill:${node.fillColor}` : "",
+      node.strokeColor ? `stroke:${node.strokeColor}` : "",
+      node.textColor ? `color:${node.textColor}` : "",
+    ].filter(Boolean);
+    if (styles.length > 0) lines.push(`  style ${node.id} ${styles.join(",")}`);
+  }
+  diagram.edges.forEach((edge, index) => {
+    const styles = [
+      edge.strokeColor ? `stroke:${edge.strokeColor}` : "",
+      edge.textColor ? `color:${edge.textColor}` : "",
+    ].filter(Boolean);
+    if (styles.length > 0) lines.push(`  linkStyle ${index} ${styles.join(",")}`);
+  });
+  return lines;
 }
 
 function extractLabel(id: string, syntax: string): string {
@@ -555,7 +654,7 @@ function formatNodeShape(node: DiagramNode): string {
     case "diamond":
       return `{${label}}`;
     case "circle":
-      return `(( ${label} ))`;
+      return `((${label}))`;
     case "rounded":
       return `(${label})`;
     case "stadium":

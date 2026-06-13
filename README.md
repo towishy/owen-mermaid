@@ -64,16 +64,6 @@ When adding new functionality, add a new row to this table so the current featur
 | Settings | Export configuration | Configures format, output folder, filename template, scale, quality, and background. |
 | UI | Liquid glass design | Uses an Owen Graphite inspired liquid glass style for toolbars, settings, viewer, and editor surfaces. |
 
-## Similar Plugin Notes
-
-The implementation was shaped by current community plugin patterns:
-
-- `mermaid-zoom` focuses on wheel zoom, drag panning, and full-screen diagram viewing.
-- `obsidian-mermaid-exporter` focuses on rendered SVG to PNG export and highlights why scoped processing is better than a long-lived global document observer.
-- `mermaid-copy` shows the familiar pattern of adding actions near Obsidian's rendered Mermaid controls.
-
-Owen Mermaid combines those surfaces and adds a visual editor path for flowchart-style diagrams.
-
 ## Usage
 
 1. Create a Mermaid code block in an Obsidian note.

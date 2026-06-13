@@ -1,7 +1,7 @@
 {
   "id": "owen-mermaid",
   "name": "Owen Mermaid",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "minAppVersion": "1.5.0",
   "description": "Zoom, visually edit, and export Mermaid SVG diagrams.",
   "author": "towishy",

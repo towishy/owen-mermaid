@@ -39,6 +39,9 @@ export interface DiagramNode {
   y: number;
   width: number;
   height: number;
+  fillColor?: string;
+  strokeColor?: string;
+  textColor?: string;
 }
 
 export interface DiagramEdge {
@@ -51,6 +54,8 @@ export interface DiagramEdge {
   route?: EdgeRoute;
   labelOffsetX?: number;
   labelOffsetY?: number;
+  strokeColor?: string;
+  textColor?: string;
 }
 
 export interface DiagramFreeLine {
@@ -64,6 +69,8 @@ export interface DiagramFreeLine {
   route?: EdgeRoute;
   labelOffsetX?: number;
   labelOffsetY?: number;
+  strokeColor?: string;
+  textColor?: string;
 }
 
 export interface FlowDiagram {
