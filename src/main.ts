@@ -82,21 +82,31 @@ export default class OwenMermaidPlugin extends Plugin {
     block.addClass("owen-mermaid-block");
     ensureLiquidGlassFilter(block.ownerDocument);
 
-    const nativeSvg = block.querySelector<SVGSVGElement>("svg");
-    if (!nativeSvg) {
-      this.pollForSvg(block, ctx);
+    let blockContext = this.createBlockContext(block, ctx);
+    const initialVisualSvg = this.renderStoredLayoutSvg(block, blockContext.source);
+    if (initialVisualSvg) {
+      this.attachSvgActions(block, initialVisualSvg, blockContext);
+      this.watchStoredLayoutBlock(block, blockContext);
       return;
     }
 
-    let blockContext = this.createBlockContext(block, ctx);
+    const nativeSvg = block.querySelector<SVGSVGElement>("svg");
+    if (!nativeSvg) {
+      this.waitForSvg(block, ctx);
+      return;
+    }
+
     if (!hasOwenMermaidLayout(blockContext.source ?? "")) {
       blockContext = await this.resolveEditableContext(blockContext, nativeSvg.textContent ?? "");
       if (!block.isConnected) return;
     }
 
     const visualSvg = this.renderStoredLayoutSvg(block, blockContext.source);
-    const svg = visualSvg ?? nativeSvg;
+    this.attachSvgActions(block, visualSvg ?? nativeSvg, blockContext);
+    if (visualSvg) this.watchStoredLayoutBlock(block, blockContext);
+  }
 
+  private attachSvgActions(block: HTMLElement, svg: SVGSVGElement, blockContext: MermaidBlockContext): void {
     const toolbar = block.createDiv({ cls: "owen-mermaid-inline-toolbar" });
     this.createInlineButton(toolbar, "maximize-2", "Open zoom viewer", () => this.openZoom(svg));
     this.createInlineButton(toolbar, "edit-3", "Edit Mermaid diagram", () => void this.openEditor(blockContext, svg));
@@ -109,19 +119,58 @@ export default class OwenMermaidPlugin extends Plugin {
     });
   }
 
-  private pollForSvg(block: HTMLElement, ctx?: MarkdownPostProcessorContext): void {
+  private waitForSvg(block: HTMLElement, ctx?: MarkdownPostProcessorContext): void {
     const win = block.ownerDocument.defaultView ?? window;
-    let tries = 0;
-    const timer = win.setInterval(() => {
-      tries += 1;
+    let done = false;
+    let timeoutId: number | undefined;
+    const observer = new MutationObserver(() => {
       const svg = block.querySelector<SVGSVGElement>("svg");
-      if (svg || tries >= 25) {
-        win.clearInterval(timer);
-        block.removeAttribute(MARKER_ATTR);
-        if (svg) void this.attachBlockUi(block, ctx);
-      }
-    }, 200);
-    this.register(() => win.clearInterval(timer));
+      if (svg) finish(svg);
+    });
+    const finish = (svg?: SVGSVGElement) => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      if (timeoutId !== undefined) win.clearTimeout(timeoutId);
+      block.removeAttribute(MARKER_ATTR);
+      if (svg) void this.attachBlockUi(block, ctx);
+    };
+
+    observer.observe(block, { childList: true, subtree: true });
+    const currentSvg = block.querySelector<SVGSVGElement>("svg");
+    if (currentSvg) {
+      finish(currentSvg);
+      return;
+    }
+
+    timeoutId = win.setTimeout(() => finish(), 5000);
+    this.register(finish);
+  }
+
+  private watchStoredLayoutBlock(block: HTMLElement, blockContext: MermaidBlockContext): void {
+    const source = blockContext.source;
+    if (!source || !hasOwenMermaidLayout(source)) return;
+
+    const win = block.ownerDocument.defaultView ?? window;
+    let done = false;
+    let timeoutId: number | undefined;
+    const observer = new MutationObserver(() => {
+      if (block.querySelector("svg.owen-mermaid-visual-svg") && block.querySelector(".owen-mermaid-inline-toolbar")) return;
+      const visualSvg = this.renderStoredLayoutSvg(block, source);
+      if (!visualSvg) return;
+      block.setAttribute(MARKER_ATTR, "true");
+      this.attachSvgActions(block, visualSvg, blockContext);
+    });
+    const finish = () => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      if (timeoutId !== undefined) win.clearTimeout(timeoutId);
+    };
+
+    observer.observe(block, { childList: true });
+    timeoutId = win.setTimeout(finish, 5000);
+    this.register(finish);
   }
 
   private observeForLateMermaid(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
@@ -296,7 +345,7 @@ export default class OwenMermaidPlugin extends Plugin {
       sourcePath: ctx?.sourcePath,
       lineStart: sectionInfo?.lineStart,
       lineEnd: sectionInfo?.lineEnd,
-      source: sectionInfo ? extractMermaidSource(sectionInfo.text) : undefined,
+      source: sectionInfo ? extractMermaidSource(sectionInfo.text) : readUnrenderedMermaidSource(block),
       blockIndex: this.getBlockIndex(block),
     };
   }
@@ -492,6 +541,13 @@ function extractFenceTextTokens(source: string): string[] {
 
 function normalizeRenderedText(value: string): string {
   return value.replace(/[#.][A-Za-z0-9_-]+\{[^}]*\}/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function readUnrenderedMermaidSource(block: HTMLElement): string | undefined {
+  if (block.querySelector("svg")) return undefined;
+  const text = block.textContent?.trim();
+  if (!text) return undefined;
+  return extractMermaidSource(text);
 }
 
 function findRenderedMermaidSvg(block: HTMLElement): SVGSVGElement | undefined {
