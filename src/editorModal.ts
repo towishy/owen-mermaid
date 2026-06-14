@@ -32,6 +32,23 @@ type ResizeHandle = "nw" | "ne" | "se" | "sw";
 type AlignmentMode = "left" | "centerX" | "right" | "top" | "middleY" | "bottom";
 type DistributionMode = "horizontal" | "vertical";
 type ColorTarget = "nodeFill" | "nodeStroke" | "nodeText" | "edgeStroke" | "edgeText";
+type DiffLineKind = "added" | "removed";
+
+interface EditorSnapshot {
+  diagram: FlowDiagram;
+  selection: Selection;
+  selectedNodeIds: string[];
+}
+
+interface SourceDraftAssessment {
+  diagram: FlowDiagram;
+  warnings: string[];
+}
+
+interface DiffLine {
+  kind: DiffLineKind;
+  text: string;
+}
 
 const COLOR_TARGETS: Array<{ value: ColorTarget; label: string; icon: string }> = [
   { value: "nodeFill", label: "Shape fill", icon: "paint-bucket" },
@@ -49,6 +66,14 @@ const DEFAULT_NODE_STROKE_WIDTH = 1.4;
 const DEFAULT_EDGE_STROKE_WIDTH = 2;
 const DEFAULT_NODE_TEXT_SIZE = 13;
 const DEFAULT_EDGE_TEXT_SIZE = 13;
+
+function cloneEditorSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
+  return {
+    diagram: cloneDiagram(snapshot.diagram),
+    selection: snapshot.selection ? { ...snapshot.selection } : null,
+    selectedNodeIds: [...snapshot.selectedNodeIds],
+  };
+}
 
 interface ResizeState {
   nodeId: string;
@@ -100,7 +125,8 @@ export class MermaidEditorModal extends Modal {
   private statusBar?: HTMLElement;
   private inspector?: HTMLElement;
   private codePreview?: HTMLTextAreaElement;
-  private diffPreview?: HTMLTextAreaElement;
+  private diffPreview?: HTMLElement;
+  private applyButton?: HTMLButtonElement;
   private draggingNodeId?: string;
   private dragOffset = { x: 0, y: 0 };
   private connectingFromNodeId?: string;
@@ -119,6 +145,7 @@ export class MermaidEditorModal extends Modal {
   private removeFreeLineListeners?: () => void;
   private removeLabelDragListeners?: () => void;
   private removeModalResizeListeners?: () => void;
+  private removeMinimapListeners?: () => void;
   private resizeState?: ResizeState;
   private reconnectState?: ReconnectState;
   private labelDragState?: LabelDragState;
@@ -127,9 +154,12 @@ export class MermaidEditorModal extends Modal {
   private suppressNextPaletteClick = false;
   private suppressClosePrompt = false;
   private discardPromptOpen = false;
+  private isSaving = false;
   private keyboardMoveHistoryRecorded = false;
   private sourceEditing = false;
   private sourceDraft?: string;
+  private pendingCanvasFrame = 0;
+  private pendingCodePreviewUpdate = false;
   private snapEnabled = true;
   private snapSize = DEFAULT_SNAP_SIZE;
   private editorZoom = 1;
@@ -153,7 +183,7 @@ export class MermaidEditorModal extends Modal {
     this.selectedNodeIds.clear();
     if (value?.kind === "node") this.selectedNodeIds.add(value.id);
   }
-  private readonly history = new HistoryStack<FlowDiagram>(cloneDiagram);
+  private readonly history = new HistoryStack<EditorSnapshot>(cloneEditorSnapshot);
   private readonly handleEditorKeydown = (event: KeyboardEvent): void => {
     if (this.isEditableKeyTarget(event.target)) return;
 
@@ -239,7 +269,7 @@ export class MermaidEditorModal extends Modal {
     this.createButton(actions, "undo-2", "Undo", () => this.undoHistory());
     this.createButton(actions, "redo-2", "Redo", () => this.redoHistory());
     this.createButton(actions, "rotate-ccw", "Auto layout", () => this.autoLayout());
-    this.createButton(actions, "save", "Apply", () => void this.save());
+    this.applyButton = this.createButton(actions, "save", "Apply", () => void this.save());
     this.createButton(actions, "x", "Close", () => this.close());
 
     this.ribbon = shell.createDiv({ cls: "owen-mermaid-editor-ribbon" });
@@ -277,8 +307,11 @@ export class MermaidEditorModal extends Modal {
     this.endFreeLineDraw();
     this.endLabelDrag();
     this.endModalResize();
+    this.endMinimapDrag();
+    this.cancelScheduledCanvasRefresh();
     this.ribbon = undefined;
     this.ribbonContextKey = "";
+    this.applyButton = undefined;
     this.modalEl.removeEventListener("keydown", this.handleEditorKeydown);
     this.modalEl.removeEventListener("keyup", this.handleEditorKeyup);
     this.contentEl.empty();
@@ -808,6 +841,7 @@ export class MermaidEditorModal extends Modal {
     this.renderInspector();
     this.renderMinimap();
     this.renderStatusBar();
+    this.updateApplyButtonState();
     this.updateCodePreview();
     this.updateColorControls();
   }
@@ -837,6 +871,29 @@ export class MermaidEditorModal extends Modal {
     this.renderShapePreview(nodes);
     this.renderMinimap();
     this.renderStatusBar();
+  }
+
+  private scheduleCanvasRefresh(updateCodePreview = false): void {
+    if (updateCodePreview) this.pendingCodePreviewUpdate = true;
+    if (this.pendingCanvasFrame) return;
+
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    this.pendingCanvasFrame = win.requestAnimationFrame(() => {
+      this.pendingCanvasFrame = 0;
+      this.renderCanvas();
+      if (this.pendingCodePreviewUpdate) {
+        this.pendingCodePreviewUpdate = false;
+        this.updateCodePreview();
+      }
+    });
+  }
+
+  private cancelScheduledCanvasRefresh(): void {
+    if (!this.pendingCanvasFrame) return;
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    win.cancelAnimationFrame(this.pendingCanvasFrame);
+    this.pendingCanvasFrame = 0;
+    this.pendingCodePreviewUpdate = false;
   }
 
   private renderSequenceCanvas(): void {
@@ -1231,12 +1288,13 @@ export class MermaidEditorModal extends Modal {
   }
 
   private renderSourceDiff(parent: HTMLElement): void {
-    const diff = this.createSourceDiff();
-    if (!diff) return;
+    const diff = this.createSourceDiffLines();
+    if (diff.length === 0) return;
     parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Changes" });
-    this.diffPreview = parent.createEl("textarea", { cls: "owen-mermaid-diff-preview" });
-    this.diffPreview.readOnly = true;
-    this.diffPreview.value = diff;
+    this.diffPreview = parent.createEl("pre", { cls: "owen-mermaid-diff-preview" });
+    for (const line of diff) {
+      this.diffPreview.createEl("span", { cls: `owen-mermaid-diff-line is-${line.kind}`, text: line.text });
+    }
   }
 
   private renderNodeInspector(parent: HTMLElement, node: DiagramNode): void {
@@ -1445,18 +1503,24 @@ export class MermaidEditorModal extends Modal {
     wrapper.createEl("label", { text: label });
     const input = wrapper.createEl("input", { value, attr: { type: "text" } });
     let recorded = false;
+    let currentValue = value;
     const recordOnce = () => {
       if (recorded) return;
       recorded = true;
       this.recordHistory();
     };
-    if (live) input.addEventListener("input", () => {
+    const applyValue = () => {
+      const nextValue = input.value.trim();
+      if (nextValue === currentValue) return;
       recordOnce();
-      onChange(input.value.trim());
+      currentValue = nextValue;
+      onChange(nextValue);
+    };
+    if (live) input.addEventListener("input", () => {
+      applyValue();
     });
     input.addEventListener("change", () => {
-      if (!live) recordOnce();
-      onChange(input.value.trim());
+      applyValue();
     });
   }
 
@@ -1466,15 +1530,19 @@ export class MermaidEditorModal extends Modal {
     const input = wrapper.createEl("input", { attr: { type: "number", min: String(min), max: String(max), step: String(step), placeholder: String(placeholder) } });
     input.value = value === undefined ? "" : String(value);
     let recorded = false;
+    let currentValue = value;
     const recordOnce = () => {
       if (recorded) return;
       recorded = true;
       this.recordHistory();
     };
     input.addEventListener("input", () => {
-      recordOnce();
       const nextValue = input.value.trim() === "" ? undefined : this.clamp(Number(input.value), min, max);
-      onChange(Number.isFinite(nextValue) ? nextValue : undefined);
+      const normalized = Number.isFinite(nextValue) ? nextValue : undefined;
+      if (normalized === currentValue) return;
+      recordOnce();
+      currentValue = normalized;
+      onChange(normalized);
     });
   }
 
@@ -1488,13 +1556,14 @@ export class MermaidEditorModal extends Modal {
     button.addEventListener("click", onClick);
   }
 
-  private createButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): void {
+  private createButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): HTMLButtonElement {
     const button = parent.createEl("button", { cls: "owen-mermaid-icon-button", attr: { "aria-label": label, title: label, type: "button" } });
     setIcon(button, icon);
     button.addEventListener("click", (event) => {
       event.preventDefault();
       onClick();
     });
+    return button;
   }
 
   private createRibbonButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): void {
@@ -1786,51 +1855,92 @@ export class MermaidEditorModal extends Modal {
   }
 
   private async save(): Promise<void> {
-    if (this.sourceEditing) this.applySourceDraft(false);
+    if (this.isSaving) return;
+    if (this.sourceEditing && !this.applySourceDraft(false, () => void this.save())) return;
+
     const nextSource = this.currentSource();
-    await this.onSave(nextSource);
-    this.savedSource = nextSource;
-    this.suppressClosePrompt = false;
-    new Notice("Mermaid diagram updated.");
-    this.render();
+    this.isSaving = true;
+    this.updateApplyButtonState();
+    this.renderStatusBar();
+
+    try {
+      await this.onSave(nextSource);
+      this.savedSource = nextSource;
+      this.suppressClosePrompt = false;
+      new Notice("Mermaid diagram updated.");
+      this.render();
+    } catch (error) {
+      new Notice(`Mermaid save failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.renderStatusBar();
+      this.updateApplyButtonState();
+    } finally {
+      this.isSaving = false;
+      this.renderStatusBar();
+      this.updateApplyButtonState();
+    }
   }
 
   private updateCodePreview(): void {
     if (this.codePreview && !this.sourceEditing) this.codePreview.value = this.currentSource();
   }
 
-  private applySourceDraft(renderAfter = true): void {
+  private applySourceDraft(renderAfter = true, afterApply?: () => void): boolean {
     const source = this.sourceDraft ?? this.codePreview?.value ?? this.currentSource();
-    this.recordHistory();
-    this.diagram = parseFlowchart(source, this.diagram.direction);
+    const assessment = this.assessSourceDraft(source);
+    if (assessment.warnings.length > 0) {
+      new MermaidSourceApplyModal(this.app, assessment.warnings, () => {
+        this.commitSourceDraft(assessment.diagram, renderAfter);
+        afterApply?.();
+      }).open();
+      return false;
+    }
+
+    this.commitSourceDraft(assessment.diagram, renderAfter);
+    afterApply?.();
+    return true;
+  }
+
+  private commitSourceDraft(nextDiagram: FlowDiagram, renderAfter: boolean): void {
+    if (this.currentSource() !== generateFlowchart(nextDiagram)) this.recordHistory();
+    this.diagram = nextDiagram;
     this.editorSelection = null;
     this.sourceEditing = false;
     this.sourceDraft = undefined;
     if (renderAfter) this.render();
   }
 
+  private assessSourceDraft(source: string): SourceDraftAssessment {
+    const nextDiagram = parseFlowchart(source, this.diagram.direction);
+    const warnings: string[] = [];
+    if (nextDiagram.syntax !== this.diagram.syntax) warnings.push(`Syntax changes from ${this.diagram.syntax} to ${nextDiagram.syntax}.`);
+    if (this.diagram.nodes.length > 0 && nextDiagram.nodes.length < this.diagram.nodes.length) warnings.push(`Visual nodes decrease from ${this.diagram.nodes.length} to ${nextDiagram.nodes.length}.`);
+    if (this.diagram.edges.length > 0 && nextDiagram.edges.length < this.diagram.edges.length) warnings.push(`Connectors decrease from ${this.diagram.edges.length} to ${nextDiagram.edges.length}.`);
+    if (nextDiagram.unsupportedLines.length > this.diagram.unsupportedLines.length) warnings.push(`${nextDiagram.unsupportedLines.length} line(s) will be preserved but not visually editable.`);
+    return { diagram: nextDiagram, warnings };
+  }
+
   private currentSource(): string {
     return generateFlowchart(this.diagram);
   }
 
-  private createSourceDiff(): string {
+  private createSourceDiffLines(): DiffLine[] {
     const previous = this.savedSource.trimEnd().split(/\r?\n/);
     const next = this.currentSource().trimEnd().split(/\r?\n/);
-    if (previous.join("\n") === next.join("\n")) return "";
-    const lines: string[] = [];
+    if (previous.join("\n") === next.join("\n")) return [];
+    const lines: DiffLine[] = [];
     const max = Math.max(previous.length, next.length);
     for (let index = 0; index < max; index += 1) {
       const before = previous[index];
       const after = next[index];
       if (before === after) continue;
-      if (before !== undefined) lines.push(`- ${before}`);
-      if (after !== undefined) lines.push(`+ ${after}`);
+      if (before !== undefined) lines.push({ kind: "removed", text: `- ${before}` });
+      if (after !== undefined) lines.push({ kind: "added", text: `+ ${after}` });
       if (lines.length > 80) {
-        lines.push("...");
+        lines.push({ kind: "added", text: "..." });
         break;
       }
     }
-    return lines.join("\n");
+    return lines;
   }
 
   private createChangeSummary(): string[] {
@@ -1886,24 +1996,32 @@ export class MermaidEditorModal extends Modal {
   }
 
   private recordHistory(): void {
-    this.history.push(this.diagram);
+    this.history.push(this.createHistorySnapshot());
   }
 
   private undoHistory(): void {
-    const previous = this.history.undo(this.diagram);
+    const previous = this.history.undo(this.createHistorySnapshot());
     if (!previous) return;
     this.restoreHistory(previous);
   }
 
   private redoHistory(): void {
-    const next = this.history.redo(this.diagram);
+    const next = this.history.redo(this.createHistorySnapshot());
     if (!next) return;
     this.restoreHistory(next);
   }
 
-  private restoreHistory(diagram: FlowDiagram): void {
-    this.diagram = diagram;
-    this.editorSelection = null;
+  private createHistorySnapshot(): EditorSnapshot {
+    return {
+      diagram: this.diagram,
+      selection: this.editorSelection,
+      selectedNodeIds: Array.from(this.selectedNodeIds),
+    };
+  }
+
+  private restoreHistory(snapshot: EditorSnapshot): void {
+    this.diagram = snapshot.diagram;
+    this.restoreSelection(snapshot.selection, snapshot.selectedNodeIds);
     this.keyboardMoveHistoryRecorded = false;
     this.sourceEditing = false;
     this.sourceDraft = undefined;
@@ -1920,6 +2038,34 @@ export class MermaidEditorModal extends Modal {
     this.canvas?.removeClass("is-placing");
     this.updatePaletteState();
     this.render();
+  }
+
+  private restoreSelection(selection: Selection, selectedNodeIds: string[]): void {
+    const validNodeIds = new Set(this.diagram.nodes.map((node) => node.id));
+    this.selectedNodeIds.clear();
+    for (const nodeId of selectedNodeIds) {
+      if (validNodeIds.has(nodeId)) this.selectedNodeIds.add(nodeId);
+    }
+
+    if (selection?.kind === "node" && validNodeIds.has(selection.id)) {
+      this.preserveNodeSelection = true;
+      this.editorSelection = selection;
+      this.preserveNodeSelection = false;
+      if (this.selectedNodeIds.size === 0) this.selectedNodeIds.add(selection.id);
+      return;
+    }
+
+    if (selection?.kind === "edge" && this.diagram.edges.some((edge) => edge.id === selection.id)) {
+      this.editorSelection = selection;
+      return;
+    }
+
+    if (selection?.kind === "freeLine" && this.diagram.freeLines.some((line) => line.id === selection.id)) {
+      this.editorSelection = selection;
+      return;
+    }
+
+    this.editorSelection = null;
   }
 
   private isEditableKeyTarget(target: EventTarget | null): boolean {
@@ -2062,7 +2208,7 @@ export class MermaidEditorModal extends Modal {
     this.connectTargetNodeId = target?.node.id;
     this.connectTargetHandle = target?.handle;
     this.connectingPoint = target ? this.getConnectionAnchorPoint(target.node, target.handle) : point;
-    this.renderCanvas();
+    this.scheduleCanvasRefresh();
   }
 
   private clearConnectionMode(): void {
@@ -2302,7 +2448,7 @@ export class MermaidEditorModal extends Modal {
   private updateSelectedShapePreview(event: PointerEvent): void {
     if (!this.selectedShape || this.draggingNodeId || this.placement || !this.canvas || !this.isPointerInsideCanvas(event)) return;
     this.previewPoint = this.toBoundedCanvasPoint(event);
-    this.renderCanvas();
+    this.scheduleCanvasRefresh();
   }
 
   private clearShapePreview(): void {
@@ -2488,8 +2634,30 @@ export class MermaidEditorModal extends Modal {
   }
 
   private handleMinimapPointer(event: PointerEvent): void {
-    if (!this.minimap) return;
+    if (!this.minimap || event.button !== 0) return;
     event.preventDefault();
+    this.endMinimapDrag();
+    this.minimap.addClass("is-dragging");
+    this.centerMinimapAtEvent(event);
+
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    const move = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      this.centerMinimapAtEvent(moveEvent);
+    };
+    const up = () => this.endMinimapDrag();
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up, { once: true });
+    win.addEventListener("pointercancel", up, { once: true });
+    this.removeMinimapListeners = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("pointercancel", up);
+    };
+  }
+
+  private centerMinimapAtEvent(event: PointerEvent): void {
+    if (!this.minimap) return;
     const bounds = this.getCanvasBounds();
     const scale = Math.min((MINIMAP_WIDTH - 16) / bounds.width, (MINIMAP_HEIGHT - 16) / bounds.height);
     const offsetX = (MINIMAP_WIDTH - bounds.width * scale) / 2;
@@ -2500,12 +2668,36 @@ export class MermaidEditorModal extends Modal {
     this.centerStageOnCanvasPoint({ x, y });
   }
 
+  private endMinimapDrag(): void {
+    this.removeMinimapListeners?.();
+    this.removeMinimapListeners = undefined;
+    this.minimap?.removeClass("is-dragging");
+  }
+
   private renderStatusBar(): void {
     if (!this.statusBar) return;
     const selected = this.selectedNodeIds.size > 1 ? `${this.selectedNodeIds.size} nodes` : this.editorSelection ? `${this.editorSelection.kind}` : "none";
-    const sourceState = this.hasUnsavedChanges() ? "changed" : "saved";
+    const sourceState = this.isSaving ? "saving" : this.hasUnsavedChanges() ? "changed" : "saved";
     const unsupported = this.diagram.unsupportedLines.length > 0 ? `, ${this.diagram.unsupportedLines.length} preserved` : "";
-    this.statusBar.setText(`Zoom ${Math.round(this.editorZoom * 100)}% | Snap ${this.snapEnabled ? this.snapSize : "off"} | Selection ${selected} | ${sourceState}${unsupported}`);
+    const tool = this.selectedShape ? ` | Tool ${this.selectedShape}` : this.selectedConnector ? ` | Tool ${this.selectedConnector.style}` : this.connectingFromNodeId ? " | connecting" : "";
+    this.statusBar.setText(`Zoom ${Math.round(this.editorZoom * 100)}% | Snap ${this.snapEnabled ? this.snapSize : "off"} | Selection ${selected} | ${sourceState}${unsupported}${tool}`);
+    this.updateToolStateClasses();
+    this.updateApplyButtonState();
+  }
+
+  private updateToolStateClasses(): void {
+    const connecting = Boolean(this.selectedConnector || this.connectingFromNodeId || this.freeLineDraft);
+    this.canvas?.toggleClass("is-connecting", connecting);
+    this.stage?.toggleClass("is-connecting", connecting);
+  }
+
+  private updateApplyButtonState(): void {
+    if (!this.applyButton) return;
+    const hasChanges = this.hasUnsavedChanges();
+    this.applyButton.disabled = this.isSaving || !hasChanges;
+    this.applyButton.toggleClass("is-busy", this.isSaving);
+    this.applyButton.setAttribute("aria-label", this.isSaving ? "Applying" : "Apply");
+    this.applyButton.setAttribute("title", this.isSaving ? "Applying" : hasChanges ? "Apply" : "No changes to apply");
   }
 
   private beginNodeDrag(node: DiagramNode, event: PointerEvent): void {
@@ -2547,8 +2739,7 @@ export class MermaidEditorModal extends Modal {
       dragged.x = start.x + deltaX;
       dragged.y = start.y + deltaY;
     }
-    this.renderCanvas();
-    this.updateCodePreview();
+    this.scheduleCanvasRefresh(true);
   }
 
   private endDrag(): void {
@@ -2617,8 +2808,7 @@ export class MermaidEditorModal extends Modal {
     node.height = bottom - top;
     node.x = (left + right) / 2;
     node.y = (top + bottom) / 2;
-    this.renderCanvas();
-    this.updateCodePreview();
+    this.scheduleCanvasRefresh(true);
   }
 
   private endResize(): void {
@@ -2664,7 +2854,7 @@ export class MermaidEditorModal extends Modal {
     if (!this.freeLineDraft || !this.canvas) return;
     event.preventDefault();
     this.freeLineDraft.current = this.snapPoint(this.toCanvasPoint(event));
-    this.renderCanvas();
+    this.scheduleCanvasRefresh();
   }
 
   private finishFreeLineDraw(event: PointerEvent): void {
@@ -2734,7 +2924,7 @@ export class MermaidEditorModal extends Modal {
     const point = this.toBoundedCanvasPoint(event);
     this.placement.point = this.snapPoint(point);
     this.previewPoint = this.placement.point;
-    this.renderCanvas();
+    this.scheduleCanvasRefresh();
   }
 
   private finishShapePlacement(event: PointerEvent): void {
@@ -2922,8 +3112,7 @@ export class MermaidEditorModal extends Modal {
     if (!item) return;
     item.labelOffsetX = state.startOffsetX + point.x - state.startPointer.x;
     item.labelOffsetY = state.startOffsetY + point.y - state.startPointer.y;
-    this.renderCanvas();
-    this.updateCodePreview();
+    this.scheduleCanvasRefresh(true);
   }
 
   private endLabelDrag(): void {
@@ -2984,6 +3173,42 @@ class MermaidDiscardChangesModal extends Modal {
     this.close();
     if (discard) this.onDiscard();
     else this.onKeepEditing();
+  }
+}
+
+class MermaidSourceApplyModal extends Modal {
+  private handled = false;
+
+  constructor(
+    app: App,
+    private readonly warnings: string[],
+    private readonly onApply: () => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("owen-mermaid-confirm-modal");
+    this.contentEl.empty();
+    const shell = this.contentEl.createDiv({ cls: "owen-mermaid-confirm-shell" });
+    shell.createEl("h3", { text: "Apply Mermaid source?" });
+    shell.createEl("p", { text: "This source edit changes what the visual editor can parse." });
+    const list = shell.createEl("ul", { cls: "owen-mermaid-confirm-list" });
+    for (const warning of this.warnings) list.createEl("li", { text: warning });
+
+    const actions = shell.createDiv({ cls: "owen-mermaid-confirm-actions" });
+    const cancel = actions.createEl("button", { text: "Keep editing", attr: { type: "button" } });
+    const apply = actions.createEl("button", { text: "Apply source", attr: { type: "button" } });
+
+    cancel.addEventListener("click", () => this.close());
+    apply.addEventListener("click", () => this.finish());
+  }
+
+  private finish(): void {
+    if (this.handled) return;
+    this.handled = true;
+    this.close();
+    this.onApply();
   }
 }
 
