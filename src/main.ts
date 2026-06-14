@@ -29,6 +29,7 @@ interface BatchExportResult {
 
 export default class OwenMermaidPlugin extends Plugin {
   settings: OwenMermaidSettings = { ...DEFAULT_SETTINGS };
+  private openDocumentsProcessTimeout?: number;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -55,9 +56,13 @@ export default class OwenMermaidPlugin extends Plugin {
       callback: () => void this.exportActiveNoteMermaidDiagrams(),
     });
 
-    this.registerEvent(this.app.workspace.on("layout-change", () => this.processOpenDocuments()));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.processOpenDocuments()));
-    this.app.workspace.onLayoutReady(() => this.processOpenDocuments());
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.queueProcessOpenDocuments()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.queueProcessOpenDocuments()));
+    this.app.workspace.onLayoutReady(() => this.queueProcessOpenDocuments(0));
+    this.register(() => {
+      if (this.openDocumentsProcessTimeout !== undefined) window.clearTimeout(this.openDocumentsProcessTimeout);
+      this.openDocumentsProcessTimeout = undefined;
+    });
   }
 
   async loadSettings(): Promise<void> {
@@ -219,14 +224,20 @@ export default class OwenMermaidPlugin extends Plugin {
   private observeForLateMermaid(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
     const win = el.ownerDocument.defaultView ?? window;
     let done = false;
+    let queuedProcess: number | undefined;
     const observer = new MutationObserver(() => {
-      if (!this.processMermaidBlocks(el, ctx)) return;
-      finish();
+      if (queuedProcess !== undefined) return;
+      queuedProcess = win.setTimeout(() => {
+        queuedProcess = undefined;
+        if (!this.processMermaidBlocks(el, ctx)) return;
+        finish();
+      }, 50);
     });
     const finish = () => {
       if (done) return;
       done = true;
       observer.disconnect();
+      if (queuedProcess !== undefined) win.clearTimeout(queuedProcess);
       win.clearTimeout(timeoutId);
     };
     observer.observe(el, { childList: true, subtree: true });
@@ -239,6 +250,15 @@ export default class OwenMermaidPlugin extends Plugin {
       const container = leaf.view.containerEl;
       this.processMermaidBlocks(container);
     }
+  }
+
+  private queueProcessOpenDocuments(delay = 80): void {
+    const win = window;
+    if (this.openDocumentsProcessTimeout !== undefined) win.clearTimeout(this.openDocumentsProcessTimeout);
+    this.openDocumentsProcessTimeout = win.setTimeout(() => {
+      this.openDocumentsProcessTimeout = undefined;
+      this.processOpenDocuments();
+    }, delay);
   }
 
   private createInlineButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): void {

@@ -74,6 +74,23 @@ When adding new functionality, add a new row to this table so the current featur
 
 The visual editor currently targets common `flowchart`/`graph` Mermaid syntax: nodes, basic shapes, labels, and connectors. It also handles basic `stateDiagram` and `sequenceDiagram` structures. Mermaid init directives are preserved before the regenerated header, and unsupported lines or subgraph blocks are preserved in the generated output section when possible.
 
+## Mermaid Compatibility
+
+Owen Mermaid keeps Mermaid source editable first and visual editing focused. Use this matrix to decide what should round-trip visually, what is preserved as source, and what may need direct source editing.
+
+| Syntax area | Visual editing | Source preservation | Notes |
+| --- | --- | --- | --- |
+| `flowchart` / `graph` headers | Yes | Yes | Supports `TD`, `LR`, `BT`, and `RL`; unsupported or missing headers fall back to the configured editor direction. |
+| Flowchart nodes | Yes | Yes | Supports rectangle, rounded, stadium, diamond, and circle shapes with common quoted or unquoted labels. |
+| Flowchart connectors | Yes | Yes | Supports line, arrow, dotted, thick, labels, self connectors, and Owen Mermaid route/label metadata. |
+| Flowchart styles | Partial | Yes | `style` and `linkStyle` colors are parsed for editable items; `classDef`, `class`, and `click` lines are preserved. |
+| Subgraphs | No | Yes | Subgraph blocks are preserved as source and are not expanded into editable canvas items. |
+| Mermaid init directives | No | Yes | `%%{init: ...}%%` lines stay before the regenerated diagram header. |
+| `stateDiagram` / `stateDiagram-v2` | Basic | Yes | Supports named states, start/end markers, basic transitions, labels, and Owen Mermaid color classes. |
+| `sequenceDiagram` | Basic | Yes | Supports participants, actors, aliases, and basic `->`, `-->`, `->>`, and `-->>` messages. |
+| Owen layout metadata | Yes | Yes | `%% owen-mermaid` metadata stores visual positions, sizes, routes, label offsets, colors, and free lines. |
+| Other Mermaid features | Source only | Best effort | Unsupported lines remain in the source preview/preserved section when the parser can safely keep them. |
+
 Keyboard shortcuts inside the editor:
 
 - `Ctrl`/`Cmd` + `Z`: undo the last editor change.
@@ -113,7 +130,7 @@ Obsidian --remote-debugging-port=9222
 npm run test:obsidian
 ```
 
-The smoke test connects to the running Obsidian app over CDP and confirms that Owen Mermaid is enabled and its commands are registered.
+The smoke test connects to the running Obsidian app over CDP, confirms that Owen Mermaid is enabled, checks command registration, creates a temporary Mermaid note, verifies the rendered SVG toolbar, opens the visual editor, and then removes the temporary note. Set `OWEN_MERMAID_SMOKE_SKIP_UI=1` to run only the command-registration checks.
 
 Manual install for testing:
 

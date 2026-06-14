@@ -1,5 +1,7 @@
 import { App, Menu, Modal, Notice, setIcon } from "obsidian";
+import { createConnectorPath as createEditorConnectorPath, getConnectorLabelPoint } from "./editorGeometry";
 import { HistoryStack } from "./editorHistory";
+import { assessSourceDraft as assessMermaidSourceDraft, createChangeSummary as createMermaidChangeSummary, createSourceDiagnostics as createMermaidSourceDiagnostics, createSourceDiffLines as createMermaidSourceDiffLines, generateEditorSource } from "./editorSource";
 import { cloneDiagram, createEdge, createNode, generateFlowchart, parseFlowchart } from "./flowchart";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
 import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeRoute, EdgeStyle, FlowDiagram, FlowDirection, MermaidRenderedLayout, NodeShape } from "./types";
@@ -22,6 +24,8 @@ const SEQUENCE_MESSAGE_GAP = 62;
 const SEQUENCE_BOTTOM_PADDING = 96;
 const MINIMAP_WIDTH = 168;
 const MINIMAP_HEIGHT = 112;
+const SMART_GUIDE_THRESHOLD = 7;
+const COPY_OFFSET = 34;
 
 type Selection = { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "freeLine"; id: string } | null;
 type ShapePlacement = { shape: NodeShape; point?: CanvasPoint };
@@ -32,22 +36,29 @@ type ResizeHandle = "nw" | "ne" | "se" | "sw";
 type AlignmentMode = "left" | "centerX" | "right" | "top" | "middleY" | "bottom";
 type DistributionMode = "horizontal" | "vertical";
 type ColorTarget = "nodeFill" | "nodeStroke" | "nodeText" | "edgeStroke" | "edgeText";
-type DiffLineKind = "added" | "removed";
+type InspectorTab = "inspect" | "source" | "changes";
+
+interface SmartGuide {
+  orientation: "vertical" | "horizontal";
+  position: number;
+}
+
+interface EditorClipboard {
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  freeLines: DiagramFreeLine[];
+}
+
+interface EditorAction {
+  label: string;
+  keywords: string;
+  run: () => void;
+}
 
 interface EditorSnapshot {
   diagram: FlowDiagram;
   selection: Selection;
   selectedNodeIds: string[];
-}
-
-interface SourceDraftAssessment {
-  diagram: FlowDiagram;
-  warnings: string[];
-}
-
-interface DiffLine {
-  kind: DiffLineKind;
-  text: string;
 }
 
 const COLOR_TARGETS: Array<{ value: ColorTarget; label: string; icon: string }> = [
@@ -105,6 +116,12 @@ interface LabelDragState {
   startOffsetY: number;
 }
 
+interface WaypointDragState {
+  kind: "edge" | "freeLine";
+  id: string;
+  index: number;
+}
+
 interface ModalResizeState {
   startPointerX: number;
   startPointerY: number;
@@ -144,11 +161,13 @@ export class MermaidEditorModal extends Modal {
   private removeResizeListeners?: () => void;
   private removeFreeLineListeners?: () => void;
   private removeLabelDragListeners?: () => void;
+  private removeWaypointDragListeners?: () => void;
   private removeModalResizeListeners?: () => void;
   private removeMinimapListeners?: () => void;
   private resizeState?: ResizeState;
   private reconnectState?: ReconnectState;
   private labelDragState?: LabelDragState;
+  private waypointDragState?: WaypointDragState;
   private modalResizeState?: ModalResizeState;
   private suppressNextCanvasClick = false;
   private suppressNextPaletteClick = false;
@@ -163,6 +182,9 @@ export class MermaidEditorModal extends Modal {
   private snapEnabled = true;
   private snapSize = DEFAULT_SNAP_SIZE;
   private editorZoom = 1;
+  private inspectorTab: InspectorTab = "inspect";
+  private copiedSelection?: EditorClipboard;
+  private smartGuides: SmartGuide[] = [];
   private colorTarget: ColorTarget = "nodeFill";
   private colorTargetSelect?: HTMLSelectElement;
   private colorInput?: HTMLInputElement;
@@ -201,6 +223,45 @@ export class MermaidEditorModal extends Modal {
       event.preventDefault();
       event.stopPropagation();
       this.redoHistory();
+      return;
+    }
+
+    if (modifier && key === "c" && this.copySelection()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (modifier && key === "v" && this.pasteSelection()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (modifier && key === "a" && this.selectAllNodes()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (modifier && key === "k") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.openActionPalette();
+      return;
+    }
+
+    if (modifier && key === "0") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.fitDiagramToStage();
+      return;
+    }
+
+    if (modifier && key === "1") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.setEditorZoom(1);
       return;
     }
 
@@ -269,6 +330,7 @@ export class MermaidEditorModal extends Modal {
     this.createButton(actions, "undo-2", "Undo", () => this.undoHistory());
     this.createButton(actions, "redo-2", "Redo", () => this.redoHistory());
     this.createButton(actions, "rotate-ccw", "Auto layout", () => this.autoLayout());
+    this.createButton(actions, "command", "Actions", () => this.openActionPalette());
     this.applyButton = this.createButton(actions, "save", "Apply", () => void this.save());
     this.createButton(actions, "x", "Close", () => this.close());
 
@@ -278,6 +340,7 @@ export class MermaidEditorModal extends Modal {
     const body = shell.createDiv({ cls: "owen-mermaid-editor-body" });
     this.stage = body.createDiv({ cls: "owen-mermaid-editor-stage" });
     this.stage.addEventListener("scroll", () => this.renderMinimap());
+    this.stage.addEventListener("wheel", (event) => this.handleStageWheel(event), { passive: false });
     const navPanel = body.createDiv({ cls: "owen-mermaid-editor-nav-panel owen-mermaid-glass-toolbar" });
     this.renderStageZoomControls(navPanel);
     this.canvas = this.stage.createSvg("svg", { cls: "owen-mermaid-canvas" });
@@ -306,6 +369,7 @@ export class MermaidEditorModal extends Modal {
     this.endConnectionDrag();
     this.endFreeLineDraw();
     this.endLabelDrag();
+    this.endWaypointDrag();
     this.endModalResize();
     this.endMinimapDrag();
     this.cancelScheduledCanvasRefresh();
@@ -418,6 +482,7 @@ export class MermaidEditorModal extends Modal {
       this.renderNodeShapeGroup(parent);
       this.renderConnectorToolGroup(parent);
       this.renderColorGroup(parent);
+      this.renderStylePresetGroup(parent);
       if (this.selectedNodeIds.size > 1) this.renderArrangeGroup(parent);
       this.renderViewRibbonGroup(parent);
       return;
@@ -425,6 +490,7 @@ export class MermaidEditorModal extends Modal {
 
     this.renderConnectorStyleGroup(parent);
     this.renderColorGroup(parent);
+    this.renderStylePresetGroup(parent);
     this.renderViewRibbonGroup(parent);
   }
 
@@ -514,6 +580,25 @@ export class MermaidEditorModal extends Modal {
     const colorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group owen-mermaid-color-group" });
     colorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Color" });
     this.renderColorRibbon(colorGroup);
+  }
+
+  private renderStylePresetGroup(parent: HTMLElement): void {
+    if (!this.editorSelection) return;
+    const group = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
+    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Preset" });
+    const items = group.createDiv({ cls: "owen-mermaid-ribbon-items" });
+    const presets = this.editorSelection.kind === "node"
+      ? [
+        { label: "Calm", icon: "sparkles", fill: "#f8fafc", stroke: "#94a3b8", text: "#172033" },
+        { label: "Focus", icon: "badge-check", fill: "#dbeafe", stroke: "#0ea5e9", text: "#172033" },
+        { label: "Warn", icon: "triangle-alert", fill: "#fef3c7", stroke: "#f59e0b", text: "#172033" },
+      ]
+      : [
+        { label: "Graphite", icon: "minus", stroke: "#64748b", text: "#172033" },
+        { label: "Sky", icon: "waves", stroke: "#0ea5e9", text: "#0369a1" },
+        { label: "Rose", icon: "activity", stroke: "#f43f5e", text: "#9f1239" },
+      ];
+    for (const preset of presets) this.createRibbonButton(items, preset.icon, preset.label, () => this.applyStylePreset(preset));
   }
 
   private renderDiagramGroup(parent: HTMLElement): void {
@@ -739,6 +824,29 @@ export class MermaidEditorModal extends Modal {
     this.render();
   }
 
+  private applyStylePreset(preset: { fill?: string; stroke: string; text: string }): void {
+    const selection = this.editorSelection;
+    if (!selection) return;
+    this.recordHistory();
+
+    if (selection.kind === "node") {
+      const nodes = this.selectedNodeIds.size > 1 ? this.selectedNodes() : this.diagram.nodes.filter((node) => node.id === selection.id);
+      for (const node of nodes) {
+        node.fillColor = preset.fill;
+        node.strokeColor = preset.stroke;
+        node.textColor = preset.text;
+      }
+      this.render();
+      return;
+    }
+
+    const item = selection.kind === "edge" ? this.diagram.edges.find((edge) => edge.id === selection.id) : this.diagram.freeLines.find((line) => line.id === selection.id);
+    if (!item) return;
+    item.strokeColor = preset.stroke;
+    item.textColor = preset.text;
+    this.render();
+  }
+
   private clearSelectedStyling(): void {
     const selection = this.editorSelection;
     if (!selection) return;
@@ -865,10 +973,12 @@ export class MermaidEditorModal extends Modal {
     this.renderFreeLines(edges);
     this.renderConnectionPreview(edges);
     this.renderFreeLineDraft(edges);
+    this.renderSmartGuides();
 
     const nodes = this.canvas.createSvg("g", { cls: "owen-mermaid-nodes" });
     for (const node of this.diagram.nodes) this.renderNode(nodes, node);
     this.renderShapePreview(nodes);
+    this.renderSubgraphHints();
     this.renderMinimap();
     this.renderStatusBar();
   }
@@ -1160,7 +1270,7 @@ export class MermaidEditorModal extends Modal {
     group.addClass(`is-${edge.style}`);
     if (selected) group.addClass("is-selected");
     const endpoints = this.getEdgeEndpoints(from, to);
-    const path = edge.renderedPath ?? this.createConnectorPath(endpoints.from, endpoints.to, edge.route);
+    const path = edge.renderedPath ?? this.createConnectorPath(endpoints.from, endpoints.to, edge.route, edge.waypoints);
     group.createSvg("path", { cls: "owen-mermaid-edge-hit", attr: { d: path, fill: "none" } });
     const markerId = edge.strokeColor ? this.createArrowMarker(edge.strokeColor) : "owen-mermaid-arrow";
     group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(edge.strokeColor, edge.strokeWidth), ...(edge.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
@@ -1172,12 +1282,15 @@ export class MermaidEditorModal extends Modal {
     });
     group.addEventListener("contextmenu", (event) => this.showEdgeMenu(event, edge));
     if (edge.label) {
-      const label = this.getLabelPoint(endpoints.from, endpoints.to, edge.labelOffsetX, edge.labelOffsetY);
+      const label = this.getLabelPoint(endpoints.from, endpoints.to, edge.waypoints, edge.labelOffsetX, edge.labelOffsetY);
       const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(edge.textColor, edge.textSize) } });
       text.setText(edge.label);
       text.addEventListener("pointerdown", (event) => this.beginLabelDrag("edge", edge.id, event));
     }
-    if (selected) this.renderEdgeEndpointHandles(group, edge, endpoints);
+    if (selected) {
+      this.renderEdgeEndpointHandles(group, edge, endpoints);
+      this.renderWaypointHandles(group, "edge", edge.id, endpoints.from, endpoints.to, edge.waypoints);
+    }
   }
 
   private renderFreeLines(parent: SVGGElement): void {
@@ -1186,7 +1299,9 @@ export class MermaidEditorModal extends Modal {
 
   private renderFreeLine(parent: SVGGElement, line: DiagramFreeLine): void {
     const selected = this.editorSelection?.kind === "freeLine" && this.editorSelection.id === line.id;
-    const path = this.createConnectorPath({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.route);
+    const start = { x: line.x1, y: line.y1 };
+    const end = { x: line.x2, y: line.y2 };
+    const path = this.createConnectorPath(start, end, line.route, line.waypoints);
     const group = parent.createSvg("g", { cls: "owen-mermaid-free-line" });
     group.addClass(`is-${line.style}`);
     if (selected) group.addClass("is-selected");
@@ -1194,7 +1309,7 @@ export class MermaidEditorModal extends Modal {
     const markerId = line.strokeColor ? this.createArrowMarker(line.strokeColor) : "owen-mermaid-arrow";
     group.createSvg("path", { cls: "owen-mermaid-edge-line", attr: { d: path, fill: "none", ...this.strokeStyleAttrs(line.strokeColor, line.strokeWidth), ...(line.style === "line" ? {} : { "marker-end": `url(#${markerId})` }) } });
     if (line.label) {
-      const label = this.getLabelPoint({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.labelOffsetX, line.labelOffsetY);
+      const label = this.getLabelPoint(start, end, line.waypoints, line.labelOffsetX, line.labelOffsetY);
       const text = group.createSvg("text", { cls: "owen-mermaid-edge-label", attr: { x: String(label.x), y: String(label.y), "text-anchor": "middle", ...this.textStyleAttrs(line.textColor, line.textSize) } });
       text.setText(line.label);
       text.addEventListener("pointerdown", (event) => this.beginLabelDrag("freeLine", line.id, event));
@@ -1207,6 +1322,7 @@ export class MermaidEditorModal extends Modal {
     });
     group.addEventListener("contextmenu", (event) => this.showFreeLineMenu(event, line));
     group.addEventListener("dblclick", () => this.promptFreeLineLabel(line));
+    if (selected) this.renderWaypointHandles(group, "freeLine", line.id, start, end, line.waypoints);
   }
 
   private renderFreeLineDraft(parent: SVGGElement): void {
@@ -1224,19 +1340,48 @@ export class MermaidEditorModal extends Modal {
     toHandle.addEventListener("pointerdown", (event) => this.beginReconnectEdge(edge, "to", event));
   }
 
+  private renderWaypointHandles(group: SVGGElement, kind: "edge" | "freeLine", id: string, from: CanvasPoint, to: CanvasPoint, waypoints: CanvasPoint[] = []): void {
+    const handles = group.createSvg("g", { cls: "owen-mermaid-waypoint-handles" });
+    waypoints.forEach((point, index) => {
+      const handle = handles.createSvg("circle", { cls: "owen-mermaid-waypoint-handle", attr: { cx: String(point.x), cy: String(point.y), r: "6" } });
+      handle.addEventListener("pointerdown", (event) => this.beginWaypointDrag(kind, id, index, event));
+      handle.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.removeWaypoint(kind, id, index);
+      });
+    });
+    const addPoint = getConnectorLabelPoint(from, to, waypoints, 0, 8);
+    const add = handles.createSvg("circle", { cls: "owen-mermaid-waypoint-add", attr: { cx: String(addPoint.x), cy: String(addPoint.y), r: "5" } });
+    add.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.addWaypoint(kind, id, { x: addPoint.x, y: addPoint.y });
+    });
+  }
+
   private renderInspector(): void {
     if (!this.inspector) return;
     this.inspector.empty();
     this.inspector.createEl("div", { cls: "owen-mermaid-section-title", text: "Inspector" });
+    this.renderInspectorTabs(this.inspector);
     this.renderRenderSummary(this.inspector);
+
+    if (this.inspectorTab === "source") {
+      this.renderUnsupportedSummary(this.inspector);
+      this.renderCodePreview(this.inspector);
+      return;
+    }
+
+    if (this.inspectorTab === "changes") {
+      this.renderChangeSummary(this.inspector);
+      this.renderSourceDiff(this.inspector);
+      return;
+    }
 
     if (!this.editorSelection) {
       this.renderConnectControls(this.inspector);
       this.inspector.createEl("p", { cls: "owen-mermaid-empty-state", text: "Select a node or connector." });
-      this.renderUnsupportedSummary(this.inspector);
-      this.renderCodePreview(this.inspector);
-      this.renderChangeSummary(this.inspector);
-      this.renderSourceDiff(this.inspector);
       return;
     }
 
@@ -1252,10 +1397,22 @@ export class MermaidEditorModal extends Modal {
       if (edge) this.renderEdgeInspector(this.inspector, edge);
     }
 
-    this.renderUnsupportedSummary(this.inspector);
-    this.renderCodePreview(this.inspector);
-    this.renderChangeSummary(this.inspector);
-    this.renderSourceDiff(this.inspector);
+  }
+
+  private renderInspectorTabs(parent: HTMLElement): void {
+    const tabs = parent.createDiv({ cls: "owen-mermaid-inspector-tabs" });
+    for (const tab of [
+      { value: "inspect", label: "Inspect" },
+      { value: "source", label: "Source" },
+      { value: "changes", label: "Changes" },
+    ] as Array<{ value: InspectorTab; label: string }>) {
+      const button = tabs.createEl("button", { cls: "owen-mermaid-inspector-tab", text: tab.label, attr: { type: "button", "aria-pressed": this.inspectorTab === tab.value ? "true" : "false" } });
+      button.toggleClass("is-active", this.inspectorTab === tab.value);
+      button.addEventListener("click", () => {
+        this.inspectorTab = tab.value;
+        this.renderInspector();
+      });
+    }
   }
 
   private renderRenderSummary(parent: HTMLElement): void {
@@ -1282,9 +1439,47 @@ export class MermaidEditorModal extends Modal {
   private renderUnsupportedSummary(parent: HTMLElement): void {
     if (this.diagram.unsupportedLines.length === 0) return;
     parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Preserved" });
+    const subgraphs = this.getSubgraphTitles();
+    if (subgraphs.length > 0) {
+      const list = parent.createEl("ul", { cls: "owen-mermaid-preserved-groups" });
+      for (const title of subgraphs) list.createEl("li", { text: `Locked subgraph: ${title}` });
+    }
     const box = parent.createEl("textarea", { cls: "owen-mermaid-preserved-preview" });
     box.readOnly = true;
     box.value = this.diagram.unsupportedLines.join("\n");
+  }
+
+  private renderSubgraphHints(): void {
+    if (!this.canvas) return;
+    const titles = this.getSubgraphTitles();
+    if (titles.length === 0) return;
+    const bounds = this.getCanvasBounds();
+    const group = this.canvas.createSvg("g", { cls: "owen-mermaid-subgraph-hints" });
+    titles.forEach((title, index) => {
+      const y = bounds.minY + 48 + index * 38;
+      const item = group.createSvg("g", { cls: "owen-mermaid-subgraph-hint" });
+      item.createSvg("rect", { attr: { x: String(bounds.minX + 24), y: String(y - 20), width: "220", height: "28", rx: "7" } });
+      item.createSvg("text", { attr: { x: String(bounds.minX + 38), y: String(y), "text-anchor": "start" } }).setText(`Locked: ${title}`);
+    });
+  }
+
+  private getSubgraphTitles(): string[] {
+    return this.diagram.unsupportedLines
+      .map((line) => line.match(/^\s*subgraph\s+(.+)\s*$/i)?.[1]?.trim())
+      .filter((title): title is string => Boolean(title));
+  }
+
+  private renderSmartGuides(): void {
+    if (!this.canvas || this.smartGuides.length === 0) return;
+    const bounds = this.getCanvasBounds();
+    const group = this.canvas.createSvg("g", { cls: "owen-mermaid-smart-guides" });
+    for (const guide of this.smartGuides) {
+      if (guide.orientation === "vertical") {
+        group.createSvg("line", { cls: "owen-mermaid-smart-guide", attr: { x1: String(guide.position), x2: String(guide.position), y1: String(bounds.minY), y2: String(bounds.maxY) } });
+      } else {
+        group.createSvg("line", { cls: "owen-mermaid-smart-guide", attr: { x1: String(bounds.minX), x2: String(bounds.maxX), y1: String(guide.position), y2: String(guide.position) } });
+      }
+    }
   }
 
   private renderSourceDiff(parent: HTMLElement): void {
@@ -1470,6 +1665,8 @@ export class MermaidEditorModal extends Modal {
     const applyButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: "Apply source", attr: { type: "button" } });
     applyButton.disabled = !this.sourceEditing;
 
+    this.renderSourceDiagnostics(parent);
+
     this.codePreview = parent.createEl("textarea", { cls: "owen-mermaid-code-preview" });
     this.codePreview.value = this.sourceEditing ? this.sourceDraft ?? this.currentSource() : this.currentSource();
     this.codePreview.readOnly = !this.sourceEditing;
@@ -1496,6 +1693,14 @@ export class MermaidEditorModal extends Modal {
       if (!this.sourceEditing) return;
       this.applySourceDraft();
     });
+  }
+
+  private renderSourceDiagnostics(parent: HTMLElement): void {
+    const source = this.sourceEditing ? this.sourceDraft ?? this.currentSource() : this.currentSource();
+    const diagnostics = createMermaidSourceDiagnostics(source, this.diagram);
+    if (diagnostics.length === 0) return;
+    const box = parent.createDiv({ cls: "owen-mermaid-source-diagnostics" });
+    for (const diagnostic of diagnostics) box.createDiv({ cls: `owen-mermaid-source-diagnostic is-${diagnostic.severity}`, text: diagnostic.message });
   }
 
   private createTextField(parent: HTMLElement, label: string, value: string, onChange: (value: string) => void, live = false): void {
@@ -1554,6 +1759,25 @@ export class MermaidEditorModal extends Modal {
   private createActionButton(parent: HTMLElement, label: string, onClick: () => void): void {
     const button = parent.createEl("button", { cls: "owen-mermaid-action-button", text: label, attr: { type: "button" } });
     button.addEventListener("click", onClick);
+  }
+
+  private openActionPalette(): void {
+    new MermaidActionPaletteModal(this.app, this.getEditorActions()).open();
+  }
+
+  private getEditorActions(): EditorAction[] {
+    return [
+      { label: "Add rectangle", keywords: "shape node rectangle", run: () => this.placeShapeAtCenter("rectangle") },
+      { label: "Add decision", keywords: "shape node diamond decision", run: () => this.placeShapeAtCenter("diamond") },
+      { label: "Fit view", keywords: "zoom fit view", run: () => this.fitDiagramToStage() },
+      { label: "Reset zoom", keywords: "zoom reset 100", run: () => this.setEditorZoom(1) },
+      { label: "Auto layout", keywords: "layout arrange", run: () => this.autoLayout() },
+      { label: "Copy selection", keywords: "copy duplicate", run: () => this.copySelection() },
+      { label: "Paste selection", keywords: "paste duplicate", run: () => this.pasteSelection() },
+      { label: "Select all nodes", keywords: "select all", run: () => this.selectAllNodes() },
+      { label: "Edit source", keywords: "source mermaid code", run: () => { this.inspectorTab = "source"; this.sourceEditing = true; this.sourceDraft = this.currentSource(); this.renderInspector(); } },
+      { label: "Show changes", keywords: "diff changes summary", run: () => { this.inspectorTab = "changes"; this.renderInspector(); } },
+    ];
   }
 
   private createButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): HTMLButtonElement {
@@ -1886,7 +2110,7 @@ export class MermaidEditorModal extends Modal {
 
   private applySourceDraft(renderAfter = true, afterApply?: () => void): boolean {
     const source = this.sourceDraft ?? this.codePreview?.value ?? this.currentSource();
-    const assessment = this.assessSourceDraft(source);
+    const assessment = assessMermaidSourceDraft(source, this.diagram);
     if (assessment.warnings.length > 0) {
       new MermaidSourceApplyModal(this.app, assessment.warnings, () => {
         this.commitSourceDraft(assessment.diagram, renderAfter);
@@ -1901,7 +2125,7 @@ export class MermaidEditorModal extends Modal {
   }
 
   private commitSourceDraft(nextDiagram: FlowDiagram, renderAfter: boolean): void {
-    if (this.currentSource() !== generateFlowchart(nextDiagram)) this.recordHistory();
+    if (this.currentSource() !== generateEditorSource(nextDiagram)) this.recordHistory();
     this.diagram = nextDiagram;
     this.editorSelection = null;
     this.sourceEditing = false;
@@ -1909,69 +2133,16 @@ export class MermaidEditorModal extends Modal {
     if (renderAfter) this.render();
   }
 
-  private assessSourceDraft(source: string): SourceDraftAssessment {
-    const nextDiagram = parseFlowchart(source, this.diagram.direction);
-    const warnings: string[] = [];
-    if (nextDiagram.syntax !== this.diagram.syntax) warnings.push(`Syntax changes from ${this.diagram.syntax} to ${nextDiagram.syntax}.`);
-    if (this.diagram.nodes.length > 0 && nextDiagram.nodes.length < this.diagram.nodes.length) warnings.push(`Visual nodes decrease from ${this.diagram.nodes.length} to ${nextDiagram.nodes.length}.`);
-    if (this.diagram.edges.length > 0 && nextDiagram.edges.length < this.diagram.edges.length) warnings.push(`Connectors decrease from ${this.diagram.edges.length} to ${nextDiagram.edges.length}.`);
-    if (nextDiagram.unsupportedLines.length > this.diagram.unsupportedLines.length) warnings.push(`${nextDiagram.unsupportedLines.length} line(s) will be preserved but not visually editable.`);
-    return { diagram: nextDiagram, warnings };
-  }
-
   private currentSource(): string {
-    return generateFlowchart(this.diagram);
+    return generateEditorSource(this.diagram);
   }
 
-  private createSourceDiffLines(): DiffLine[] {
-    const previous = this.savedSource.trimEnd().split(/\r?\n/);
-    const next = this.currentSource().trimEnd().split(/\r?\n/);
-    if (previous.join("\n") === next.join("\n")) return [];
-    const lines: DiffLine[] = [];
-    const max = Math.max(previous.length, next.length);
-    for (let index = 0; index < max; index += 1) {
-      const before = previous[index];
-      const after = next[index];
-      if (before === after) continue;
-      if (before !== undefined) lines.push({ kind: "removed", text: `- ${before}` });
-      if (after !== undefined) lines.push({ kind: "added", text: `+ ${after}` });
-      if (lines.length > 80) {
-        lines.push({ kind: "added", text: "..." });
-        break;
-      }
-    }
-    return lines;
+  private createSourceDiffLines() {
+    return createMermaidSourceDiffLines(this.savedSource, this.currentSource());
   }
 
   private createChangeSummary(): string[] {
-    const previous = parseFlowchart(this.savedSource, this.diagram.direction);
-    const items: string[] = [];
-    let nodeTextChanges = 0;
-    let nodeStyleChanges = 0;
-    let layoutChanges = 0;
-    let connectorChanges = 0;
-    const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
-    for (const node of this.diagram.nodes) {
-      const before = previousNodes.get(node.id);
-      if (!before) {
-        nodeTextChanges += 1;
-        continue;
-      }
-      if (before.label !== node.label || before.shape !== node.shape) nodeTextChanges += 1;
-      if (before.fillColor !== node.fillColor || before.strokeColor !== node.strokeColor || before.textColor !== node.textColor || before.strokeWidth !== node.strokeWidth || before.textSize !== node.textSize) nodeStyleChanges += 1;
-      if (Math.round(before.x) !== Math.round(node.x) || Math.round(before.y) !== Math.round(node.y) || Math.round(before.width) !== Math.round(node.width) || Math.round(before.height) !== Math.round(node.height)) layoutChanges += 1;
-    }
-    const previousEdges = new Map(previous.edges.map((edge) => [edge.id, edge]));
-    for (const edge of this.diagram.edges) {
-      const before = previousEdges.get(edge.id);
-      if (!before || before.from !== edge.from || before.to !== edge.to || before.label !== edge.label || before.style !== edge.style || before.route !== edge.route || before.strokeColor !== edge.strokeColor || before.textColor !== edge.textColor || before.strokeWidth !== edge.strokeWidth || before.textSize !== edge.textSize) connectorChanges += 1;
-    }
-    if (nodeTextChanges > 0) items.push(`${nodeTextChanges} node text or shape change(s)`);
-    if (nodeStyleChanges > 0) items.push(`${nodeStyleChanges} node style change(s)`);
-    if (connectorChanges > 0) items.push(`${connectorChanges} connector change(s)`);
-    if (layoutChanges > 0) items.push(`${layoutChanges} editor layout change(s)`);
-    if (previous.freeLines.length !== this.diagram.freeLines.length) items.push("Free line count changed");
-    return items;
+    return createMermaidChangeSummary(this.savedSource, this.diagram);
   }
 
   private hasUnsavedChanges(): boolean {
@@ -2031,9 +2202,11 @@ export class MermaidEditorModal extends Modal {
     this.endConnectionDrag();
     this.endFreeLineDraw();
     this.endLabelDrag();
+    this.endWaypointDrag();
     this.selectedShape = undefined;
     this.selectedConnector = undefined;
     this.previewPoint = undefined;
+    this.smartGuides = [];
     this.clearConnectionMode();
     this.canvas?.removeClass("is-placing");
     this.updatePaletteState();
@@ -2097,6 +2270,116 @@ export class MermaidEditorModal extends Modal {
     }
     else if (selection.kind === "edge") this.deleteEdge(selection.id);
     else this.deleteFreeLine(selection.id);
+    return true;
+  }
+
+  private selectAllNodes(): boolean {
+    if (this.diagram.nodes.length === 0) return false;
+    this.selectedNodeIds.clear();
+    for (const node of this.diagram.nodes) this.selectedNodeIds.add(node.id);
+    this.preserveNodeSelection = true;
+    this.editorSelection = { kind: "node", id: this.diagram.nodes[0]?.id ?? "" };
+    this.preserveNodeSelection = false;
+    this.render();
+    return true;
+  }
+
+  private copySelection(): boolean {
+    const selection = this.editorSelection;
+    if (!selection) return false;
+    if (selection.kind === "node") {
+      const nodes = this.selectedNodes();
+      if (nodes.length === 0) return false;
+      const ids = new Set(nodes.map((node) => node.id));
+      this.copiedSelection = {
+        nodes: nodes.map((node) => ({ ...node })),
+        edges: this.diagram.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)).map((edge) => ({ ...edge, waypoints: edge.waypoints?.map((point) => ({ ...point })) })),
+        freeLines: [],
+      };
+      return true;
+    }
+    if (selection.kind === "edge") {
+      const edge = this.diagram.edges.find((item) => item.id === selection.id);
+      if (!edge) return false;
+      this.copiedSelection = { nodes: [], edges: [{ ...edge, waypoints: edge.waypoints?.map((point) => ({ ...point })) }], freeLines: [] };
+      return true;
+    }
+    const line = this.diagram.freeLines.find((item) => item.id === selection.id);
+    if (!line) return false;
+    this.copiedSelection = { nodes: [], edges: [], freeLines: [{ ...line, waypoints: line.waypoints?.map((point) => ({ ...point })) }] };
+    return true;
+  }
+
+  private pasteSelection(): boolean {
+    const copied = this.copiedSelection;
+    if (!copied || (copied.nodes.length === 0 && copied.edges.length === 0 && copied.freeLines.length === 0)) return false;
+    this.recordHistory();
+    const idMap = new Map<string, string>();
+    this.selectedNodeIds.clear();
+
+    for (const source of copied.nodes) {
+      const node = createNode(this.diagram, source.shape);
+      idMap.set(source.id, node.id);
+      Object.assign(node, {
+        label: source.label,
+        shape: source.shape,
+        x: source.x + COPY_OFFSET,
+        y: source.y + COPY_OFFSET,
+        width: source.width,
+        height: source.height,
+        fillColor: source.fillColor,
+        strokeColor: source.strokeColor,
+        textColor: source.textColor,
+        strokeWidth: source.strokeWidth,
+        textSize: source.textSize,
+      });
+      this.selectedNodeIds.add(node.id);
+    }
+
+    let lastSelection: Selection = null;
+    for (const source of copied.edges) {
+      const from = idMap.get(source.from) ?? source.from;
+      const to = idMap.get(source.to) ?? source.to;
+      if (!this.diagram.nodes.some((node) => node.id === from) || !this.diagram.nodes.some((node) => node.id === to)) continue;
+      const edge = createEdge(this.diagram, from, to);
+      Object.assign(edge, {
+        label: source.label,
+        style: source.style,
+        route: source.route,
+        waypoints: source.waypoints?.map((point) => ({ x: point.x + COPY_OFFSET, y: point.y + COPY_OFFSET })),
+        labelOffsetX: source.labelOffsetX,
+        labelOffsetY: source.labelOffsetY,
+        strokeColor: source.strokeColor,
+        textColor: source.textColor,
+        strokeWidth: source.strokeWidth,
+        textSize: source.textSize,
+      });
+      lastSelection = { kind: "edge", id: edge.id };
+    }
+
+    for (const source of copied.freeLines) {
+      const line: DiagramFreeLine = {
+        ...source,
+        id: this.nextFreeLineId(),
+        x1: source.x1 + COPY_OFFSET,
+        y1: source.y1 + COPY_OFFSET,
+        x2: source.x2 + COPY_OFFSET,
+        y2: source.y2 + COPY_OFFSET,
+        waypoints: source.waypoints?.map((point) => ({ x: point.x + COPY_OFFSET, y: point.y + COPY_OFFSET })),
+      };
+      this.diagram.freeLines.push(line);
+      lastSelection = { kind: "freeLine", id: line.id };
+    }
+
+    if (this.selectedNodeIds.size > 0) {
+      const firstId = Array.from(this.selectedNodeIds)[0];
+      this.preserveNodeSelection = true;
+      this.editorSelection = firstId ? { kind: "node", id: firstId } : null;
+      this.preserveNodeSelection = false;
+    } else {
+      this.editorSelection = lastSelection;
+    }
+    this.render();
     return true;
   }
 
@@ -2558,6 +2841,22 @@ export class MermaidEditorModal extends Modal {
     this.renderStatusBar();
   }
 
+  private handleStageWheel(event: WheelEvent): void {
+    if (!this.stage) return;
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const direction = event.deltaY > 0 ? -1 : 1;
+      this.setEditorZoom(this.editorZoom + direction * EDITOR_ZOOM_STEP);
+      return;
+    }
+
+    if (event.shiftKey) {
+      event.preventDefault();
+      this.stage.scrollLeft += event.deltaY;
+      this.renderMinimap();
+    }
+  }
+
   private applyCanvasViewport(): void {
     if (!this.canvas) return;
     const bounds = this.getCanvasBounds();
@@ -2728,7 +3027,8 @@ export class MermaidEditorModal extends Modal {
     if (!node) return;
     event.preventDefault();
     const point = this.toCanvasPoint(event);
-    const snapped = this.snapPoint({ x: point.x - this.dragOffset.x, y: point.y - this.dragOffset.y });
+    const movingNodes = Array.from(this.draggedNodeStarts.keys());
+    const snapped = this.smartSnapNodePoint({ x: point.x - this.dragOffset.x, y: point.y - this.dragOffset.y }, node, movingNodes);
     const primaryStart = this.draggedNodeStarts.get(node.id) ?? { x: node.x, y: node.y };
     const deltaX = snapped.x - primaryStart.x;
     const deltaY = snapped.y - primaryStart.y;
@@ -2747,6 +3047,11 @@ export class MermaidEditorModal extends Modal {
     this.removeNodeDragListeners = undefined;
     this.draggingNodeId = undefined;
     this.draggedNodeStarts.clear();
+    if (this.smartGuides.length > 0) {
+      this.smartGuides = [];
+      this.renderCanvas();
+      this.updateCodePreview();
+    }
   }
 
   private beginResize(node: DiagramNode, handle: ResizeHandle, event: PointerEvent): void {
@@ -2995,6 +3300,53 @@ export class MermaidEditorModal extends Modal {
     };
   }
 
+  private smartSnapNodePoint(point: CanvasPoint, node: DiagramNode, movingNodeIds: string[]): CanvasPoint {
+    const gridPoint = this.snapPoint(point);
+    const moving = new Set(movingNodeIds);
+    const candidatesX = [
+      { value: gridPoint.x, offset: 0 },
+      { value: gridPoint.x - node.width / 2, offset: node.width / 2 },
+      { value: gridPoint.x + node.width / 2, offset: -node.width / 2 },
+    ];
+    const candidatesY = [
+      { value: gridPoint.y, offset: 0 },
+      { value: gridPoint.y - node.height / 2, offset: node.height / 2 },
+      { value: gridPoint.y + node.height / 2, offset: -node.height / 2 },
+    ];
+    let nextX = gridPoint.x;
+    let nextY = gridPoint.y;
+    let bestX = SMART_GUIDE_THRESHOLD + 1;
+    let bestY = SMART_GUIDE_THRESHOLD + 1;
+    const guides: SmartGuide[] = [];
+
+    for (const other of this.diagram.nodes) {
+      if (moving.has(other.id)) continue;
+      for (const target of [other.x, other.x - other.width / 2, other.x + other.width / 2]) {
+        for (const candidate of candidatesX) {
+          const distance = Math.abs(candidate.value - target);
+          if (distance < bestX && distance <= SMART_GUIDE_THRESHOLD) {
+            bestX = distance;
+            nextX = target + candidate.offset;
+            guides[0] = { orientation: "vertical", position: target };
+          }
+        }
+      }
+      for (const target of [other.y, other.y - other.height / 2, other.y + other.height / 2]) {
+        for (const candidate of candidatesY) {
+          const distance = Math.abs(candidate.value - target);
+          if (distance < bestY && distance <= SMART_GUIDE_THRESHOLD) {
+            bestY = distance;
+            nextY = target + candidate.offset;
+            guides[1] = { orientation: "horizontal", position: target };
+          }
+        }
+      }
+    }
+
+    this.smartGuides = guides.filter(Boolean);
+    return { x: nextX, y: nextY };
+  }
+
   private findNodeAtPoint(point: CanvasPoint, excludeNodeId?: string): DiagramNode | undefined {
     return [...this.diagram.nodes].reverse().find((node) => {
       if (node.id === excludeNodeId) return false;
@@ -3057,27 +3409,72 @@ export class MermaidEditorModal extends Modal {
     return { x: node.x, y: node.y + Math.sign(dy || 1) * node.height / 2 };
   }
 
-  private createConnectorPath(from: CanvasPoint, to: CanvasPoint, route: EdgeRoute = "curve"): string {
-    if (route === "straight") return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
-    if (route === "elbow") {
-      const midX = (from.x + to.x) / 2;
-      return `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
-    }
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      const sign = Math.sign(dx || 1);
-      const curve = Math.max(42, Math.min(180, Math.abs(dx) * 0.52));
-      return `M ${from.x} ${from.y} C ${from.x + sign * curve} ${from.y}, ${to.x - sign * curve} ${to.y}, ${to.x} ${to.y}`;
-    }
-
-    const sign = Math.sign(dy || 1);
-    const curve = Math.max(42, Math.min(180, Math.abs(dy) * 0.52));
-    return `M ${from.x} ${from.y} C ${from.x} ${from.y + sign * curve}, ${to.x} ${to.y - sign * curve}, ${to.x} ${to.y}`;
+  private createConnectorPath(from: CanvasPoint, to: CanvasPoint, route: EdgeRoute = "curve", waypoints: CanvasPoint[] = []): string {
+    return createEditorConnectorPath(from, to, route, waypoints);
   }
 
-  private getLabelPoint(from: CanvasPoint, to: CanvasPoint, offsetX = 0, offsetY = 0): CanvasPoint {
-    return { x: (from.x + to.x) / 2 + offsetX, y: (from.y + to.y) / 2 - 8 + offsetY };
+  private getLabelPoint(from: CanvasPoint, to: CanvasPoint, waypoints: CanvasPoint[] = [], offsetX = 0, offsetY = 0): CanvasPoint {
+    return getConnectorLabelPoint(from, to, waypoints, offsetX, offsetY);
+  }
+
+  private addWaypoint(kind: "edge" | "freeLine", id: string, point: CanvasPoint): void {
+    const item = kind === "edge" ? this.diagram.edges.find((edge) => edge.id === id) : this.diagram.freeLines.find((line) => line.id === id);
+    if (!item) return;
+    this.recordHistory();
+    item.waypoints = [...(item.waypoints ?? []), this.snapPoint(point)];
+    if (kind === "edge") (item as DiagramEdge).renderedPath = undefined;
+    this.editorSelection = kind === "edge" ? { kind: "edge", id } : { kind: "freeLine", id };
+    this.render();
+  }
+
+  private removeWaypoint(kind: "edge" | "freeLine", id: string, index: number): void {
+    const item = kind === "edge" ? this.diagram.edges.find((edge) => edge.id === id) : this.diagram.freeLines.find((line) => line.id === id);
+    if (!item?.waypoints?.[index]) return;
+    this.recordHistory();
+    item.waypoints.splice(index, 1);
+    if (item.waypoints.length === 0) item.waypoints = undefined;
+    if (kind === "edge") (item as DiagramEdge).renderedPath = undefined;
+    this.render();
+  }
+
+  private beginWaypointDrag(kind: "edge" | "freeLine", id: string, index: number, event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.endWaypointDrag();
+    this.recordHistory();
+    this.waypointDragState = { kind, id, index };
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    const move = (moveEvent: PointerEvent) => this.updateWaypointDrag(moveEvent);
+    const up = () => this.endWaypointDrag();
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up, { once: true });
+    win.addEventListener("pointercancel", up, { once: true });
+    this.removeWaypointDragListeners = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("pointercancel", up);
+    };
+  }
+
+  private updateWaypointDrag(event: PointerEvent): void {
+    const state = this.waypointDragState;
+    if (!state) return;
+    const item = state.kind === "edge" ? this.diagram.edges.find((edge) => edge.id === state.id) : this.diagram.freeLines.find((line) => line.id === state.id);
+    const waypoint = item?.waypoints?.[state.index];
+    if (!item || !waypoint) return;
+    event.preventDefault();
+    const point = this.snapPoint(this.toCanvasPoint(event));
+    waypoint.x = point.x;
+    waypoint.y = point.y;
+    if (state.kind === "edge") (item as DiagramEdge).renderedPath = undefined;
+    this.scheduleCanvasRefresh(true);
+  }
+
+  private endWaypointDrag(): void {
+    this.removeWaypointDragListeners?.();
+    this.removeWaypointDragListeners = undefined;
+    this.waypointDragState = undefined;
   }
 
   private beginLabelDrag(kind: "edge" | "freeLine", id: string, event: PointerEvent): void {
@@ -3209,6 +3606,53 @@ class MermaidSourceApplyModal extends Modal {
     this.handled = true;
     this.close();
     this.onApply();
+  }
+}
+
+class MermaidActionPaletteModal extends Modal {
+  private query = "";
+
+  constructor(
+    app: App,
+    private readonly actions: EditorAction[],
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("owen-mermaid-action-palette-modal");
+    this.contentEl.empty();
+    const shell = this.contentEl.createDiv({ cls: "owen-mermaid-action-palette-shell" });
+    const input = shell.createEl("input", { cls: "owen-mermaid-action-palette-input", attr: { type: "text", placeholder: "Search actions" } });
+    const list = shell.createDiv({ cls: "owen-mermaid-action-palette-list" });
+
+    const render = () => {
+      list.empty();
+      const query = this.query.toLowerCase();
+      const matches = this.actions.filter((action) => !query || `${action.label} ${action.keywords}`.toLowerCase().includes(query)).slice(0, 8);
+      for (const action of matches) {
+        const button = list.createEl("button", { cls: "owen-mermaid-action-palette-item", text: action.label, attr: { type: "button" } });
+        button.addEventListener("click", () => {
+          this.close();
+          action.run();
+        });
+      }
+    };
+
+    input.addEventListener("input", () => {
+      this.query = input.value;
+      render();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") this.close();
+      if (event.key === "Enter") {
+        const first = list.querySelector<HTMLButtonElement>("button");
+        first?.click();
+      }
+    });
+    render();
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    win.requestAnimationFrame(() => input.focus());
   }
 }
 

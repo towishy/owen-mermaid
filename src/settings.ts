@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type OwenMermaidPlugin from "./main";
+import { normalizeFilenameTemplateSetting, normalizeImageBackgroundSetting, normalizeOutputFolderSetting } from "./settingsValidation";
 import type { ExportFormat } from "./types";
 
 export type ImageSaveLocation = "ask" | "vault";
@@ -85,7 +86,7 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           .setPlaceholder("exports/images")
           .setValue(this.plugin.settings.outputFolder)
           .onChange(async (value) => {
-            this.plugin.settings.outputFolder = value.trim() || DEFAULT_SETTINGS.outputFolder;
+            this.plugin.settings.outputFolder = normalizeOutputFolderSetting(value, DEFAULT_SETTINGS.outputFolder);
             await this.plugin.saveSettings();
           }),
       );
@@ -113,7 +114,7 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           .setPlaceholder("{{name}}")
           .setValue(this.plugin.settings.filenameTemplate)
           .onChange(async (value) => {
-            this.plugin.settings.filenameTemplate = value.trim() || DEFAULT_SETTINGS.filenameTemplate;
+            this.plugin.settings.filenameTemplate = normalizeFilenameTemplateSetting(value, DEFAULT_SETTINGS.filenameTemplate);
             await this.plugin.saveSettings();
           }),
       );
@@ -152,7 +153,12 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           .setPlaceholder("#FFFFFF")
           .setValue(this.plugin.settings.imageBackground)
           .onChange(async (value) => {
-            this.plugin.settings.imageBackground = value.trim() || DEFAULT_SETTINGS.imageBackground;
+            const normalized = normalizeImageBackgroundSetting(value, DEFAULT_SETTINGS.imageBackground);
+            const invalid = Boolean(value.trim()) && normalized !== value.trim();
+            text.inputEl.toggleClass("is-invalid", invalid);
+            text.inputEl.setAttribute("aria-invalid", invalid ? "true" : "false");
+            if (invalid) return;
+            this.plugin.settings.imageBackground = normalized;
             await this.plugin.saveSettings();
           }),
       );

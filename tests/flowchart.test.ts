@@ -66,13 +66,16 @@ test("round-trips free line metadata", () => {
 });
 
 test("round-trips connector route and label metadata", () => {
-  const source = 'flowchart LR\n  %% owen-mermaid: {"nodes":{"A":{"x":120,"y":100},"B":{"x":320,"y":100}},"edges":{"A-B-0":{"route":"elbow","labelOffsetX":24,"labelOffsetY":-12}},"freeLines":[{"id":"freeLine1","x1":0,"y1":0,"x2":100,"y2":40,"label":"note","style":"dotted","route":"straight","labelOffsetX":8,"labelOffsetY":6}]}\n  A[Start] --> B[Next]\n';
+  const source = 'flowchart LR\n  %% owen-mermaid: {"nodes":{"A":{"x":120,"y":100},"B":{"x":320,"y":100}},"edges":{"A-B-0":{"route":"elbow","waypoints":[{"x":220,"y":80}],"labelOffsetX":24,"labelOffsetY":-12}},"freeLines":[{"id":"freeLine1","x1":0,"y1":0,"x2":100,"y2":40,"label":"note","style":"dotted","route":"straight","waypoints":[{"x":40,"y":16}],"labelOffsetX":8,"labelOffsetY":6}]}\n  A[Start] --> B[Next]\n';
   const diagram = parseFlowchart(source, "TD");
 
   assert.equal(diagram.edges[0]?.route, "elbow");
+  assert.deepEqual(diagram.edges[0]?.waypoints, [{ x: 220, y: 80 }]);
   assert.equal(diagram.edges[0]?.labelOffsetX, 24);
   assert.equal(diagram.freeLines[0]?.route, "straight");
+  assert.deepEqual(diagram.freeLines[0]?.waypoints, [{ x: 40, y: 16 }]);
   assert.match(generateFlowchart(diagram), /"edges"/);
+  assert.match(generateFlowchart(diagram), /"waypoints"/);
   assert.match(generateFlowchart(diagram), /"labelOffsetY":-12/);
 });
 

@@ -5,6 +5,11 @@ export type NodeShape = "rectangle" | "rounded" | "stadium" | "diamond" | "circl
 export type EdgeStyle = "line" | "arrow" | "dotted" | "thick";
 export type EdgeRoute = "curve" | "straight" | "elbow";
 
+export interface DiagramPoint {
+  x: number;
+  y: number;
+}
+
 export interface RenderedNodeLayout {
   id?: string;
   label?: string;
@@ -54,6 +59,7 @@ export interface DiagramEdge {
   style: EdgeStyle;
   renderedPath?: string;
   route?: EdgeRoute;
+  waypoints?: DiagramPoint[];
   labelOffsetX?: number;
   labelOffsetY?: number;
   strokeColor?: string;
@@ -71,6 +77,7 @@ export interface DiagramFreeLine {
   label: string;
   style: EdgeStyle;
   route?: EdgeRoute;
+  waypoints?: DiagramPoint[];
   labelOffsetX?: number;
   labelOffsetY?: number;
   strokeColor?: string;

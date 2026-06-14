@@ -1,5 +1,6 @@
+import { createConnectorPath, getConnectorLabelPoint } from "./editorGeometry";
 import { parseFlowchart } from "./flowchart";
-import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeRoute, FlowDiagram, FlowDirection } from "./types";
+import type { DiagramEdge, DiagramFreeLine, DiagramNode, FlowDiagram, FlowDirection } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const LAYOUT_META_PATTERN = /^\s*%%\s+owen-mermaid:/m;
@@ -122,7 +123,7 @@ function renderEdge(parent: SVGElement, diagram: FlowDiagram, edge: DiagramEdge,
   const to = diagram.nodes.find((node) => node.id === edge.to);
   if (!from || !to) return;
   const endpoints = getEdgeEndpoints(from, to);
-  const path = createConnectorPath(endpoints.from, endpoints.to, edge.route);
+  const path = createConnectorPath(endpoints.from, endpoints.to, edge.route, edge.waypoints);
   const group = createSvg(parent.ownerDocument, "g", { class: `owen-mermaid-edge is-${edge.style}` });
   parent.appendChild(group);
   group.appendChild(createSvg(parent.ownerDocument, "path", { class: "owen-mermaid-edge-hit", d: path, fill: "none" }));
@@ -134,11 +135,11 @@ function renderEdge(parent: SVGElement, diagram: FlowDiagram, edge: DiagramEdge,
     ...strokeStyleAttrs(edge.strokeColor, edge.strokeWidth),
     ...(edge.style === "line" ? {} : { "marker-end": `url(#${markerId})` }),
   }));
-  if (edge.label) appendLabel(group, getLabelPoint(endpoints.from, endpoints.to, edge.labelOffsetX, edge.labelOffsetY), edge.label, edge.textColor, edge.textSize);
+  if (edge.label) appendLabel(group, getConnectorLabelPoint(endpoints.from, endpoints.to, edge.waypoints, edge.labelOffsetX, edge.labelOffsetY), edge.label, edge.textColor, edge.textSize);
 }
 
 function renderFreeLine(parent: SVGElement, line: DiagramFreeLine, renderIndex: number): void {
-  const path = createConnectorPath({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.route);
+  const path = createConnectorPath({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.route, line.waypoints);
   const group = createSvg(parent.ownerDocument, "g", { class: `owen-mermaid-free-line is-${line.style}` });
   parent.appendChild(group);
   group.appendChild(createSvg(parent.ownerDocument, "path", { class: "owen-mermaid-edge-hit", d: path, fill: "none" }));
@@ -150,7 +151,7 @@ function renderFreeLine(parent: SVGElement, line: DiagramFreeLine, renderIndex: 
     ...strokeStyleAttrs(line.strokeColor, line.strokeWidth),
     ...(line.style === "line" ? {} : { "marker-end": `url(#${markerId})` }),
   }));
-  if (line.label) appendLabel(group, getLabelPoint({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.labelOffsetX, line.labelOffsetY), line.label, line.textColor, line.textSize);
+  if (line.label) appendLabel(group, getConnectorLabelPoint({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 }, line.waypoints, line.labelOffsetX, line.labelOffsetY), line.label, line.textColor, line.textSize);
 }
 
 function renderSequenceParticipant(parent: SVGElement, node: DiagramNode, y: number): void {
@@ -227,28 +228,6 @@ function getBoundaryPointToward(node: DiagramNode, target: CanvasPoint): CanvasP
   const dy = target.y - node.y;
   if (Math.abs(dx) / Math.max(1, node.width) > Math.abs(dy) / Math.max(1, node.height)) return { x: node.x + Math.sign(dx || 1) * node.width / 2, y: node.y };
   return { x: node.x, y: node.y + Math.sign(dy || 1) * node.height / 2 };
-}
-
-function createConnectorPath(from: CanvasPoint, to: CanvasPoint, route: EdgeRoute = "curve"): string {
-  if (route === "straight") return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
-  if (route === "elbow") {
-    const midX = (from.x + to.x) / 2;
-    return `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
-  }
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    const sign = Math.sign(dx || 1);
-    const curve = Math.max(42, Math.min(180, Math.abs(dx) * 0.52));
-    return `M ${from.x} ${from.y} C ${from.x + sign * curve} ${from.y}, ${to.x - sign * curve} ${to.y}, ${to.x} ${to.y}`;
-  }
-  const sign = Math.sign(dy || 1);
-  const curve = Math.max(42, Math.min(180, Math.abs(dy) * 0.52));
-  return `M ${from.x} ${from.y} C ${from.x} ${from.y + sign * curve}, ${to.x} ${to.y - sign * curve}, ${to.x} ${to.y}`;
-}
-
-function getLabelPoint(from: CanvasPoint, to: CanvasPoint, offsetX = 0, offsetY = 0): CanvasPoint {
-  return { x: (from.x + to.x) / 2 + offsetX, y: (from.y + to.y) / 2 - 8 + offsetY };
 }
 
 function nodeStyleAttrs(node: DiagramNode): Record<string, string> {

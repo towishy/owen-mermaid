@@ -1,4 +1,4 @@
-import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeRoute, FlowDiagram, FlowDirection, NodeShape } from "./types";
+import type { DiagramEdge, DiagramFreeLine, DiagramNode, DiagramPoint, EdgeRoute, FlowDiagram, FlowDirection, NodeShape } from "./types";
 
 const DIRECTION_PATTERN = /^(?:flowchart|graph)\s+(TD|LR|BT|RL)\s*$/i;
 const STATE_DIAGRAM_PATTERN = /^stateDiagram(?:-v2)?\s*$/i;
@@ -40,6 +40,7 @@ interface NodeLayoutMeta {
 
 interface EdgeLayoutMeta {
   route?: EdgeRoute;
+  waypoints?: DiagramPoint[];
   labelOffsetX?: number;
   labelOffsetY?: number;
   strokeColor?: string;
@@ -329,8 +330,8 @@ export function cloneDiagram(diagram: FlowDiagram): FlowDiagram {
     direction: diagram.direction,
     directives: [...diagram.directives],
     nodes: diagram.nodes.map((node) => ({ ...node })),
-    edges: diagram.edges.map((edge) => ({ ...edge })),
-    freeLines: diagram.freeLines.map((line) => ({ ...line })),
+    edges: diagram.edges.map((edge) => ({ ...edge, waypoints: edge.waypoints?.map((point) => ({ ...point })) })),
+    freeLines: diagram.freeLines.map((line) => ({ ...line, waypoints: line.waypoints?.map((point) => ({ ...point })) })),
     unsupportedLines: [...diagram.unsupportedLines],
   };
 }
@@ -550,6 +551,7 @@ function applyEdgeMeta(edges: DiagramEdge[], meta: LayoutMeta | null): void {
     const layout = meta.edges[edge.id];
     if (!layout) continue;
     edge.route = readEdgeRoute(layout.route, edge.route);
+    edge.waypoints = readWaypoints(layout.waypoints, edge.waypoints);
     edge.labelOffsetX = readFiniteNumber(layout.labelOffsetX, edge.labelOffsetX ?? 0);
     edge.labelOffsetY = readFiniteNumber(layout.labelOffsetY, edge.labelOffsetY ?? 0);
     edge.strokeColor = readColor(layout.strokeColor, edge.strokeColor);
@@ -563,15 +565,16 @@ function serializeEdgeMeta(edges: DiagramEdge[]): Record<string, EdgeLayoutMeta>
   const meta: Record<string, EdgeLayoutMeta> = {};
   for (const edge of edges) {
     const route = readEdgeRoute(edge.route, "curve");
+    const waypoints = readWaypoints(edge.waypoints, undefined);
     const labelOffsetX = Math.round(readFiniteNumber(edge.labelOffsetX, 0));
     const labelOffsetY = Math.round(readFiniteNumber(edge.labelOffsetY, 0));
     const strokeColor = readColor(edge.strokeColor, undefined);
     const textColor = readColor(edge.textColor, undefined);
     const strokeWidth = readStyleNumber(edge.strokeWidth, undefined);
     const textSize = readStyleNumber(edge.textSize, undefined);
-    const hasMeta = route !== "curve" || labelOffsetX !== 0 || labelOffsetY !== 0 || Boolean(strokeColor || textColor || strokeWidth || textSize);
+    const hasMeta = route !== "curve" || Boolean(waypoints?.length) || labelOffsetX !== 0 || labelOffsetY !== 0 || Boolean(strokeColor || textColor || strokeWidth || textSize);
     if (!hasMeta) continue;
-    meta[edge.id] = { route, labelOffsetX, labelOffsetY, ...(strokeColor ? { strokeColor } : {}), ...(textColor ? { textColor } : {}), ...(strokeWidth ? { strokeWidth } : {}), ...(textSize ? { textSize } : {}) };
+    meta[edge.id] = { route, ...(waypoints?.length ? { waypoints } : {}), labelOffsetX, labelOffsetY, ...(strokeColor ? { strokeColor } : {}), ...(textColor ? { textColor } : {}), ...(strokeWidth ? { strokeWidth } : {}), ...(textSize ? { textSize } : {}) };
   }
   return meta;
 }
@@ -589,6 +592,7 @@ function readFreeLines(meta: LayoutMeta | null): DiagramFreeLine[] {
       label: typeof line.label === "string" ? line.label : "",
       style: ["line", "arrow", "dotted", "thick"].includes(line.style) ? line.style : "line",
       route: readEdgeRoute(line.route, "curve"),
+      waypoints: readWaypoints(line.waypoints, undefined),
       labelOffsetX: readFiniteNumber(line.labelOffsetX, 0),
       labelOffsetY: readFiniteNumber(line.labelOffsetY, 0),
       strokeColor: readColor(line.strokeColor, undefined),
@@ -596,6 +600,20 @@ function readFreeLines(meta: LayoutMeta | null): DiagramFreeLine[] {
       strokeWidth: readStyleNumber(line.strokeWidth, undefined),
       textSize: readStyleNumber(line.textSize, undefined),
     }));
+}
+
+function readWaypoints(value: unknown, fallback: DiagramPoint[] | undefined): DiagramPoint[] | undefined {
+  if (!Array.isArray(value)) return fallback?.map((point) => ({ ...point }));
+  const points = value
+    .map((point) => {
+      if (!point || typeof point !== "object") return null;
+      const candidate = point as Partial<DiagramPoint>;
+      const x = readFiniteNumber(candidate.x, Number.NaN);
+      const y = readFiniteNumber(candidate.y, Number.NaN);
+      return Number.isFinite(x) && Number.isFinite(y) ? { x: Math.round(x), y: Math.round(y) } : null;
+    })
+    .filter((point): point is DiagramPoint => Boolean(point));
+  return points.length > 0 ? points : undefined;
 }
 
 function readEdgeRoute(value: unknown, fallback: EdgeRoute | undefined): EdgeRoute | undefined {

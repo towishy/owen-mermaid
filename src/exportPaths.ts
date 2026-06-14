@@ -64,7 +64,8 @@ export function formatFilename(template: string, source: ExportFilenameContext |
     .replace(/\{\{scale\}\}/g, String(scale))
     .replace(/\{\{date\}\}/g, date)
     .replace(/\{\{time\}\}/g, time);
-  return sanitizeFilename(base).replace(/\s+/g, " ").trim() || `mermaid-diagram-${Date.now()}`;
+  const safeName = sanitizeFilename(base).replace(/\s+/g, " ").trim();
+  return hasMeaningfulFilenameStem(safeName) ? safeName : `mermaid-diagram-${Date.now()}`;
 }
 
 export function sanitizeFilename(value: string): string {
@@ -77,4 +78,8 @@ export function sanitizeFilename(value: string): string {
 function normalizeFilenameContext(source: ExportFilenameContext | string): ExportFilenameContext {
   if (typeof source === "string") return { sourceName: source || "mermaid-diagram" };
   return { ...source, sourceName: source.sourceName || "mermaid-diagram" };
+}
+
+function hasMeaningfulFilenameStem(value: string): boolean {
+  return value.replace(/[\s._-]/g, "").length > 0;
 }

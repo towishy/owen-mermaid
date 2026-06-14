@@ -25,6 +25,11 @@ test("sanitizes generated filenames", () => {
     formatFilename("{{note}}-{{index}}-{{format}}-{{scale}}", { sourceName: "Note", sourcePath: "Folder/Note.md", lineStart: 4 }, "png", 2),
     "Note-5-png-2",
   );
+  assert.equal(
+    formatFilename("{{folder}}-{{heading}}-{{rawName}}", { sourceName: "Diagram", sourcePath: "Area/Note.md", heading: "A/B: C" }, "jpg", 3),
+    "Area-A-B- C-Note.md",
+  );
+  assert.match(formatFilename("<>:\"/\\|?*", "", "png", 2), /^mermaid-diagram-\d+$/);
 });
 
 test("finds an available vault path with numeric suffixes", async () => {
