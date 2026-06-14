@@ -16,6 +16,7 @@ export interface OwenMermaidSettings {
   imageBackground: string;
   zoomStep: number;
   defaultEditorDirection: "TD" | "LR";
+  renderStoredLayoutsImmediately: boolean;
 }
 
 export const DEFAULT_SETTINGS: OwenMermaidSettings = {
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: OwenMermaidSettings = {
   imageBackground: "#FFFFFF",
   zoomStep: 0.15,
   defaultEditorDirection: "LR",
+  renderStoredLayoutsImmediately: true,
 };
 
 export class OwenMermaidSettingTab extends PluginSettingTab {
@@ -190,6 +192,18 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.defaultEditorDirection)
           .onChange(async (value) => {
             this.plugin.settings.defaultEditorDirection = value as "TD" | "LR";
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Render saved layouts first")
+      .setDesc("Use Owen Mermaid's visual renderer immediately when a Mermaid block has saved Owen layout metadata.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.renderStoredLayoutsImmediately)
+          .onChange(async (value) => {
+            this.plugin.settings.renderStoredLayoutsImmediately = value;
             await this.plugin.saveSettings();
           }),
       );

@@ -10,6 +10,9 @@ import { MermaidZoomModal } from "./zoomModal";
 
 const MARKER_ATTR = "data-owen-mermaid-enhanced";
 const MERMAID_SELECTOR = ".mermaid, .block-language-mermaid";
+const MERMAID_CODE_SELECTOR = "pre > code.language-mermaid";
+const EARLY_RENDER_SORT_ORDER = -1000;
+const ENHANCE_RENDER_SORT_ORDER = 100;
 
 interface SectionInfo {
   text: string;
@@ -32,9 +35,13 @@ export default class OwenMermaidPlugin extends Plugin {
     this.addSettingTab(new OwenMermaidSettingTab(this.app, this));
 
     this.registerMarkdownPostProcessor((el, ctx) => {
+      this.renderStoredLayoutCodeBlocks(el, ctx);
+    }, EARLY_RENDER_SORT_ORDER);
+
+    this.registerMarkdownPostProcessor((el, ctx) => {
       if (this.processMermaidBlocks(el, ctx)) return;
       this.observeForLateMermaid(el, ctx);
-    }, 100);
+    }, ENHANCE_RENDER_SORT_ORDER);
 
     this.addCommand({
       id: "scan-mermaid-diagrams",
@@ -74,6 +81,42 @@ export default class OwenMermaidPlugin extends Plugin {
     blocks.push(...Array.from(el.querySelectorAll<HTMLElement>(MERMAID_SELECTOR)));
     const uniqueBlocks = Array.from(new Set(blocks));
     return uniqueBlocks.filter((block) => !uniqueBlocks.some((other) => other !== block && other.contains(block)));
+  }
+
+  private renderStoredLayoutCodeBlocks(el: HTMLElement, ctx: MarkdownPostProcessorContext): boolean {
+    if (!this.settings.renderStoredLayoutsImmediately) return false;
+    let rendered = false;
+
+    for (const code of this.collectUnrenderedMermaidCodeBlocks(el)) {
+      const pre = code.parentElement;
+      if (!pre || pre.tagName !== "PRE") continue;
+      const source = code.textContent ?? "";
+      if (!hasOwenMermaidLayout(source)) continue;
+
+      const block = el.ownerDocument.createElement("div");
+      block.classList.add("block-language-mermaid", "owen-mermaid-block");
+      block.setAttribute(MARKER_ATTR, "true");
+      ensureLiquidGlassFilter(block.ownerDocument);
+
+      const visualSvg = this.renderStoredLayoutSvg(block, source);
+      if (!visualSvg) continue;
+
+      const blockContext = this.createCodeBlockContext(source, pre, ctx);
+      pre.replaceWith(block);
+      blockContext.blockIndex = this.getBlockIndex(block);
+      this.attachSvgActions(block, visualSvg, blockContext);
+      this.watchStoredLayoutBlock(block, blockContext);
+      rendered = true;
+    }
+
+    return rendered;
+  }
+
+  private collectUnrenderedMermaidCodeBlocks(el: HTMLElement): HTMLElement[] {
+    const codes: HTMLElement[] = [];
+    if (el.matches(MERMAID_CODE_SELECTOR)) codes.push(el);
+    codes.push(...Array.from(el.querySelectorAll<HTMLElement>(MERMAID_CODE_SELECTOR)));
+    return Array.from(new Set(codes));
   }
 
   private async attachBlockUi(block: HTMLElement, ctx?: MarkdownPostProcessorContext): Promise<void> {
@@ -347,6 +390,16 @@ export default class OwenMermaidPlugin extends Plugin {
       lineEnd: sectionInfo?.lineEnd,
       source: sectionInfo ? extractMermaidSource(sectionInfo.text) : readUnrenderedMermaidSource(block),
       blockIndex: this.getBlockIndex(block),
+    };
+  }
+
+  private createCodeBlockContext(source: string, codeBlock: HTMLElement, ctx: MarkdownPostProcessorContext): MermaidBlockContext {
+    const sectionInfo = this.getSectionInfo(ctx, codeBlock);
+    return {
+      sourcePath: ctx.sourcePath,
+      lineStart: sectionInfo?.lineStart,
+      lineEnd: sectionInfo?.lineEnd,
+      source: sectionInfo ? extractMermaidSource(sectionInfo.text) : source,
     };
   }
 
