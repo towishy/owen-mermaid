@@ -1,3 +1,5 @@
+![Owen Kit](screenshot/owen-kit.png)
+
 # Owen Mermaid
 
 Owen Mermaid is an Obsidian plugin for viewing and editing Mermaid SVG images inside your notes.
