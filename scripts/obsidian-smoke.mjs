@@ -53,17 +53,18 @@ try {
     ui = await page.evaluate(() => {
       const toolbar = document.querySelector(".owen-mermaid-block .owen-mermaid-inline-toolbar");
       const buttons = Array.from(toolbar?.querySelectorAll("button") ?? []).map((button) => ({
+        action: button.dataset.action ?? "",
         label: button.getAttribute("aria-label") ?? "",
         title: button.getAttribute("title") ?? "",
       }));
-      const editButton = Array.from(toolbar?.querySelectorAll("button") ?? []).find((button) => button.getAttribute("aria-label") === "Edit Mermaid diagram");
+      const editButton = toolbar?.querySelector("button[data-action='edit']");
       if (!editButton) throw new Error("Edit toolbar button was not found.");
       editButton.click();
       return { checked: true, buttons };
     });
     await page.waitForSelector(".owen-mermaid-editor-modal .owen-mermaid-canvas", { timeout: 10000 });
     await page.waitForSelector(".owen-mermaid-editor-modal .owen-mermaid-code-preview", { timeout: 10000 });
-    await page.locator(".owen-mermaid-editor-actions button[aria-label='Close']").click({ force: true });
+    await page.locator(".owen-mermaid-editor-actions button").last().click({ force: true });
     await page.waitForSelector(".owen-mermaid-editor-modal", { state: "detached", timeout: 10000 });
   }
 

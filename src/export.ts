@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { Notice } from "obsidian";
 import type { ExportFilenameContext } from "./exportPaths";
 import { formatFilename, getAvailableVaultPath, getVaultExportFolder, normalizeVaultFolderPath } from "./exportPaths";
+import { createTranslator, type Translator } from "./i18n";
 import type { OwenMermaidSettings } from "./settings";
 import type { ExportFormat } from "./types";
 
@@ -42,18 +43,19 @@ export async function downloadSvgImage(
   settings: OwenMermaidSettings,
   source: ExportFilenameContext | string,
   app: App,
+  t: Translator = createTranslator("en"),
 ): Promise<void> {
   try {
     if (settings.saveLocation === "vault") {
       const result = await exportSvgImageToVault(svg, format, settings, source, app);
-      new Notice(`Mermaid diagram saved: ${result.path}`);
+      new Notice(t("notice.saved", { path: result.path }));
     } else {
       const blob = await svgToImageBlob(svg, format, settings.exportScale, settings.imageBackground, settings.imageQuality);
-      const path = await saveBlobWithDialog(blob, format, settings, source, svg.ownerDocument.defaultView ?? window);
-      if (path) new Notice(`Mermaid diagram saved: ${path}`);
+      const path = await saveBlobWithDialog(blob, format, settings, source, svg.ownerDocument.defaultView ?? window, t);
+      if (path) new Notice(t("notice.saved", { path }));
     }
   } catch (error) {
-    new Notice(`Mermaid download failed: ${error instanceof Error ? error.message : String(error)}`);
+    new Notice(t("notice.downloadFailed", { error: error instanceof Error ? error.message : String(error) }));
   }
 }
 
@@ -213,17 +215,17 @@ function setPresentationAttribute(element: SVGElement, name: string, value: stri
   element.setAttribute(name, normalized);
 }
 
-async function saveBlobWithDialog(blob: Blob, format: ExportFormat, settings: OwenMermaidSettings, source: ExportFilenameContext | string, win: Window): Promise<string | null> {
+async function saveBlobWithDialog(blob: Blob, format: ExportFormat, settings: OwenMermaidSettings, source: ExportFilenameContext | string, win: Window, t: Translator): Promise<string | null> {
   const electron = (win as ElectronWindow).electron;
   if (!electron?.remote?.dialog) {
-    new Notice("Download requires the Obsidian desktop app.");
+    new Notice(t("notice.desktopRequired"));
     return null;
   }
 
   const extension = format === "jpg" ? "jpg" : "png";
   const result = await electron.remote.dialog.showSaveDialog({
     defaultPath: `${formatFilename(settings.filenameTemplate, source, extension, settings.exportScale)}.${extension}`,
-    filters: [{ name: format === "jpg" ? "JPG Images" : "PNG Images", extensions: [extension] }],
+    filters: [{ name: format === "jpg" ? t("export.jpgImages") : t("export.pngImages"), extensions: [extension] }],
     properties: ["showOverwriteConfirmation"],
   });
 

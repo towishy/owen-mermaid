@@ -30,6 +30,20 @@ test("creates source diagnostics for preserved lines", () => {
   assert.match(diagnostics.map((item) => item.message).join("\n"), /preserved line\(s\) are not visually editable/);
 });
 
+test("localizes editor source warnings, diagnostics, and change summaries", () => {
+  const source = "flowchart LR\n  A[Start] --> B[Done]\n";
+  const current = parseFlowchart(source, "TD");
+  const assessment = assessSourceDraft("sequenceDiagram\n  participant A as Alice\n", current, "ko");
+  assert.match(assessment.warnings.join("\n"), /구문이 flowchart에서 sequenceDiagram/);
+
+  const diagnostics = createSourceDiagnostics("flowchart LR\n", current, "ko");
+  assert.match(diagnostics.map((item) => item.message).join("\n"), /시각적 노드를 파싱하지 못했습니다/);
+
+  const changed = parseFlowchart(source, "TD");
+  changed.nodes[0]!.label = "Changed";
+  assert.deepEqual(createChangeSummary(source, changed, "ko"), ["노드 텍스트 또는 도형 변경 1건"]);
+});
+
 test("summarizes editor-visible changes", () => {
   const source = "flowchart LR\n  A[Start] --> B[Done]\n";
   const diagram = parseFlowchart(source, "TD");

@@ -1,4 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
+import { createTranslator, normalizeLocalePreference, type LocalePreference } from "./i18n";
 import type OwenMermaidPlugin from "./main";
 import { normalizeFilenameTemplateSetting, normalizeImageBackgroundSetting, normalizeOutputFolderSetting } from "./settingsValidation";
 import type { ExportFormat } from "./types";
@@ -7,6 +8,7 @@ export type ImageSaveLocation = "ask" | "vault";
 export type BatchReportMode = "never" | "failures" | "always";
 
 export interface OwenMermaidSettings {
+  language: LocalePreference;
   exportFormat: ExportFormat;
   saveLocation: ImageSaveLocation;
   outputFolder: string;
@@ -21,6 +23,7 @@ export interface OwenMermaidSettings {
 }
 
 export const DEFAULT_SETTINGS: OwenMermaidSettings = {
+  language: "auto",
   exportFormat: "png",
   saveLocation: "ask",
   outputFolder: "exports/images",
@@ -41,18 +44,40 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
+    const t = createTranslator(this.plugin.locale);
     containerEl.empty();
     containerEl.addClass("owen-mermaid-settings");
 
     this.addSectionHeader(
       containerEl,
-      "SVG image export",
-      "Configure rasterized SVG downloads, vault saves, filenames, and batch reports.",
+      t("settings.interface.section"),
+      t("settings.interface.sectionDesc"),
     );
 
     new Setting(containerEl)
-      .setName("Default image format")
-      .setDesc("Format used by the primary SVG download menu item.")
+      .setName(t("settings.language.name"))
+      .setDesc(t("settings.language.desc"))
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("auto", t("settings.language.auto"))
+          .addOption("en", t("settings.language.en"))
+          .addOption("ko", t("settings.language.ko"))
+          .setValue(this.plugin.settings.language)
+          .onChange(async (value) => {
+            await this.plugin.setLanguage(normalizeLocalePreference(value));
+            this.display();
+          }),
+      );
+
+    this.addSectionHeader(
+      containerEl,
+      t("settings.export.section"),
+      t("settings.export.sectionDesc"),
+    );
+
+    new Setting(containerEl)
+      .setName(t("settings.format.name"))
+      .setDesc(t("settings.format.desc"))
       .addDropdown((dropdown) =>
         dropdown
           .addOption("png", "PNG")
@@ -65,12 +90,12 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Image save location")
-      .setDesc("Ask for a save location or save directly into a vault folder.")
+      .setName(t("settings.location.name"))
+      .setDesc(t("settings.location.desc"))
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("ask", "Ask every time")
-          .addOption("vault", "Vault folder")
+          .addOption("ask", t("settings.location.ask"))
+          .addOption("vault", t("settings.location.vault"))
           .setValue(this.plugin.settings.saveLocation)
           .onChange(async (value) => {
             this.plugin.settings.saveLocation = value as ImageSaveLocation;
@@ -79,8 +104,8 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Image output folder")
-      .setDesc("Vault-relative folder for direct SVG image exports and batch exports.")
+      .setName(t("settings.folder.name"))
+      .setDesc(t("settings.folder.desc"))
       .addText((text) =>
         text
           .setPlaceholder("exports/images")
@@ -92,13 +117,13 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("SVG batch report")
-      .setDesc("Write a Markdown report for batch SVG exports.")
+      .setName(t("settings.report.name"))
+      .setDesc(t("settings.report.desc"))
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("never", "Never")
-          .addOption("failures", "Only when something fails")
-          .addOption("always", "Always")
+          .addOption("never", t("settings.report.never"))
+          .addOption("failures", t("settings.report.failures"))
+          .addOption("always", t("settings.report.always"))
           .setValue(this.plugin.settings.batchReportMode)
           .onChange(async (value) => {
             this.plugin.settings.batchReportMode = value as BatchReportMode;
@@ -107,8 +132,8 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Image filename template")
-      .setDesc("Supports {{name}}, {{rawName}}, {{note}}, {{folder}}, {{heading}}, {{index}}, {{format}}, {{scale}}, {{date}}, and {{time}}.")
+      .setName(t("settings.filename.name"))
+      .setDesc(t("settings.filename.desc"))
       .addText((text) =>
         text
           .setPlaceholder("{{name}}")
@@ -120,8 +145,8 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Image quality")
-      .setDesc("JPEG quality from 0.1 to 1.0. PNG ignores this setting.")
+      .setName(t("settings.quality.name"))
+      .setDesc(t("settings.quality.desc"))
       .addSlider((slider) =>
         slider
           .setLimits(0.1, 1, 0.05)
@@ -133,8 +158,8 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Image scale")
-      .setDesc("Rasterization multiplier. Use 2 or 3 for high-resolution exports.")
+      .setName(t("settings.scale.name"))
+      .setDesc(t("settings.scale.desc"))
       .addSlider((slider) =>
         slider
           .setLimits(1, 4, 1)
@@ -146,8 +171,8 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Image background")
-      .setDesc("Canvas background used for JPG and transparent Mermaid SVGs. Use a CSS color such as #FFFFFF.")
+      .setName(t("settings.background.name"))
+      .setDesc(t("settings.background.desc"))
       .addText((text) =>
         text
           .setPlaceholder("#FFFFFF")
@@ -165,13 +190,13 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
 
     this.addSectionHeader(
       containerEl,
-      "Mermaid zoom viewer",
-      "Configure inline controls and the full-screen pan and zoom experience.",
+      t("settings.zoom.section"),
+      t("settings.zoom.sectionDesc"),
     );
 
     new Setting(containerEl)
-      .setName("Zoom step")
-      .setDesc("How much the inline and full-screen zoom buttons change the scale.")
+      .setName(t("settings.zoomStep.name"))
+      .setDesc(t("settings.zoomStep.desc"))
       .addSlider((slider) =>
         slider
           .setLimits(0.05, 0.4, 0.05)
@@ -184,17 +209,17 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
 
     this.addSectionHeader(
       containerEl,
-      "Visual Mermaid editor",
-      "Configure the drag-and-drop editor used from the Mermaid SVG context menu.",
+      t("settings.editor.section"),
+      t("settings.editor.sectionDesc"),
     );
 
     new Setting(containerEl)
-      .setName("New diagram direction")
-      .setDesc("Direction used when the visual editor creates a diagram from an empty or unsupported block.")
+      .setName(t("settings.direction.name"))
+      .setDesc(t("settings.direction.desc"))
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("LR", "Left to right")
-          .addOption("TD", "Top to bottom")
+          .addOption("LR", t("settings.direction.lr"))
+          .addOption("TD", t("settings.direction.td"))
           .setValue(this.plugin.settings.defaultEditorDirection)
           .onChange(async (value) => {
             this.plugin.settings.defaultEditorDirection = value as "TD" | "LR";
@@ -203,8 +228,8 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Render saved layouts first")
-      .setDesc("Use Owen Mermaid's visual renderer immediately when a Mermaid block has saved Owen layout metadata.")
+      .setName(t("settings.renderFirst.name"))
+      .setDesc(t("settings.renderFirst.desc"))
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.renderStoredLayoutsImmediately)

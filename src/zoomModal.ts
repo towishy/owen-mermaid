@@ -1,4 +1,5 @@
 import { App, Modal, setIcon } from "obsidian";
+import type { Translator } from "./i18n";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
 
 interface ZoomState {
@@ -32,6 +33,7 @@ export class MermaidZoomModal extends Modal {
     app: App,
     private readonly sourceSvg: SVGSVGElement,
     private readonly zoomStep: number,
+    private readonly t: Translator,
   ) {
     super(app);
   }
@@ -44,12 +46,12 @@ export class MermaidZoomModal extends Modal {
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-zoom-shell" });
     const toolbar = shell.createDiv({ cls: "owen-mermaid-glass-toolbar owen-mermaid-zoom-toolbar" });
 
-    toolbar.createEl("div", { cls: "owen-mermaid-toolbar-title", text: "Mermaid" });
-    this.createToolbarButton(toolbar, "zoom-in", "Zoom in", () => this.zoom(1 + this.zoomStep));
-    this.createToolbarButton(toolbar, "zoom-out", "Zoom out", () => this.zoom(1 - this.zoomStep));
-    this.createToolbarButton(toolbar, "rotate-ccw", "Reset", () => this.fitToStage());
+    toolbar.createEl("div", { cls: "owen-mermaid-toolbar-title", text: this.t("zoom.title") });
+    this.createToolbarButton(toolbar, "zoom-in", this.t("zoom.in"), () => this.zoom(1 + this.zoomStep));
+    this.createToolbarButton(toolbar, "zoom-out", this.t("zoom.out"), () => this.zoom(1 - this.zoomStep));
+    this.createToolbarButton(toolbar, "rotate-ccw", this.t("zoom.reset"), () => this.fitToStage());
     this.scaleEl = toolbar.createEl("span", { cls: "owen-mermaid-scale", text: "100%" });
-    this.createToolbarButton(toolbar, "x", "Close", () => this.close());
+    this.createToolbarButton(toolbar, "x", this.t("common.close"), () => this.close());
 
     const stage = shell.createDiv({ cls: "owen-mermaid-zoom-stage" });
     this.contentWrapper = stage.createDiv({ cls: "owen-mermaid-zoom-content" });

@@ -1,6 +1,7 @@
-import { MarkdownPostProcessorContext, MarkdownView, Menu, Notice, Plugin, TFile, setIcon } from "obsidian";
+import { MarkdownPostProcessorContext, MarkdownView, Menu, Notice, Plugin, TFile, moment, setIcon } from "obsidian";
 import { MermaidEditorModal } from "./editorModal";
 import { downloadSvgImage, exportSvgImageToVault, getVaultExportFolder, writeTextToAvailableVaultPath, type ExportFilenameContext } from "./export";
+import { createTranslator, normalizeLocalePreference, resolveLocale, type Locale, type LocalePreference, type TranslationKey } from "./i18n";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
 import { extractMermaidSource, findMermaidFences, replaceMermaidSourceInContent, type MermaidFenceInfo } from "./markdown";
 import { DEFAULT_SETTINGS, OwenMermaidSettingTab, type OwenMermaidSettings } from "./settings";
@@ -31,6 +32,10 @@ export default class OwenMermaidPlugin extends Plugin {
   settings: OwenMermaidSettings = { ...DEFAULT_SETTINGS };
   private openDocumentsProcessTimeout?: number;
 
+  get locale(): Locale {
+    return resolveLocale(this.settings.language, moment.locale());
+  }
+
   async onload(): Promise<void> {
     await this.loadSettings();
     this.addSettingTab(new OwenMermaidSettingTab(this.app, this));
@@ -46,13 +51,13 @@ export default class OwenMermaidPlugin extends Plugin {
 
     this.addCommand({
       id: "scan-mermaid-diagrams",
-      name: "Scan Mermaid diagrams",
+      name: this.t("command.scan"),
       callback: () => this.processOpenDocuments(),
     });
 
     this.addCommand({
       id: "export-active-note-mermaid-diagrams",
-      name: "Export Mermaid diagrams in active note",
+      name: this.t("command.exportActive"),
       callback: () => void this.exportActiveNoteMermaidDiagrams(),
     });
 
@@ -68,10 +73,21 @@ export default class OwenMermaidPlugin extends Plugin {
   async loadSettings(): Promise<void> {
     const data = (await this.loadData()) as Partial<OwenMermaidSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
+    this.settings.language = normalizeLocalePreference(this.settings.language);
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  t(key: TranslationKey, variables?: Record<string, string | number>): string {
+    return createTranslator(this.locale)(key, variables);
+  }
+
+  async setLanguage(language: LocalePreference): Promise<void> {
+    this.settings.language = language;
+    await this.saveSettings();
+    this.refreshInlineToolbarLabels();
   }
 
   processMermaidBlocks(el: HTMLElement, ctx?: MarkdownPostProcessorContext): boolean {
@@ -156,9 +172,9 @@ export default class OwenMermaidPlugin extends Plugin {
 
   private attachSvgActions(block: HTMLElement, svg: SVGSVGElement, blockContext: MermaidBlockContext): void {
     const toolbar = block.createDiv({ cls: "owen-mermaid-inline-toolbar" });
-    this.createInlineButton(toolbar, "maximize-2", "Open zoom viewer", () => this.openZoom(svg));
-    this.createInlineButton(toolbar, "edit-3", "Edit Mermaid diagram", () => void this.openEditor(blockContext, svg));
-    this.createInlineButton(toolbar, "download", "Download Mermaid image", () => void this.download(svg, this.settings.exportFormat, blockContext));
+    this.createInlineButton(toolbar, "maximize-2", "zoom", this.t("inline.zoom"), () => this.openZoom(svg));
+    this.createInlineButton(toolbar, "edit-3", "edit", this.t("inline.edit"), () => void this.openEditor(blockContext, svg));
+    this.createInlineButton(toolbar, "download", "download", this.t("inline.download"), () => void this.download(svg, this.settings.exportFormat, blockContext));
 
     this.registerDomEvent(block, "contextmenu", (event: MouseEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest("svg")) return;
@@ -261,8 +277,8 @@ export default class OwenMermaidPlugin extends Plugin {
     }, delay);
   }
 
-  private createInlineButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): void {
-    const button = parent.createEl("button", { cls: "owen-mermaid-icon-button", attr: { type: "button", "aria-label": label, title: label } });
+  private createInlineButton(parent: HTMLElement, icon: string, action: "zoom" | "edit" | "download", label: string, onClick: () => void): void {
+    const button = parent.createEl("button", { cls: "owen-mermaid-icon-button", attr: { type: "button", "data-action": action, "aria-label": label, title: label } });
     setIcon(button, icon);
     this.registerDomEvent(button, "click", (event) => {
       event.preventDefault();
@@ -273,22 +289,22 @@ export default class OwenMermaidPlugin extends Plugin {
 
   private showContextMenu(event: MouseEvent, svg: SVGSVGElement, context: MermaidBlockContext): void {
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle("Open zoom viewer").setIcon("maximize-2").onClick(() => this.openZoom(svg)));
-    menu.addItem((item) => item.setTitle("Edit Mermaid diagram").setIcon("edit-3").onClick(() => void this.openEditor(context, svg)));
+    menu.addItem((item) => item.setTitle(this.t("inline.zoom")).setIcon("maximize-2").onClick(() => this.openZoom(svg)));
+    menu.addItem((item) => item.setTitle(this.t("inline.edit")).setIcon("edit-3").onClick(() => void this.openEditor(context, svg)));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Download PNG").setIcon("download").onClick(() => void this.download(svg, "png", context)));
-    menu.addItem((item) => item.setTitle("Download JPG").setIcon("image").onClick(() => void this.download(svg, "jpg", context)));
+    menu.addItem((item) => item.setTitle(this.t("menu.downloadPng")).setIcon("download").onClick(() => void this.download(svg, "png", context)));
+    menu.addItem((item) => item.setTitle(this.t("menu.downloadJpg")).setIcon("image").onClick(() => void this.download(svg, "jpg", context)));
     menu.showAtMouseEvent(event);
   }
 
   private openZoom(svg: SVGSVGElement): void {
-    new MermaidZoomModal(this.app, svg, this.settings.zoomStep).open();
+    new MermaidZoomModal(this.app, svg, this.settings.zoomStep, createTranslator(this.locale)).open();
   }
 
   private async openEditor(context: MermaidBlockContext, svg?: SVGSVGElement): Promise<void> {
     const resolvedContext = await this.resolveEditableContext(context, svg?.textContent ?? "");
     if (!resolvedContext.sourcePath || resolvedContext.lineStart === undefined || resolvedContext.lineEnd === undefined) {
-      new Notice("Mermaid 원본 코드블록을 찾지 못했습니다. 노트를 연 상태에서 다시 시도해 주세요.");
+      new Notice(this.t("notice.sourceBlockMissing"));
       return;
     }
 
@@ -298,12 +314,13 @@ export default class OwenMermaidPlugin extends Plugin {
       this.settings.defaultEditorDirection,
       async (nextSource) => this.replaceMermaidSource(resolvedContext, nextSource),
       svg && !hasOwenMermaidLayout(resolvedContext.source ?? "") ? extractRenderedLayout(svg) : undefined,
+      this.locale,
     ).open();
   }
 
   private renderStoredLayoutSvg(block: HTMLElement, source: string | undefined): SVGSVGElement | undefined {
     if (!source || !hasOwenMermaidLayout(source)) return undefined;
-    const svg = renderVisualDiagram(source, block.ownerDocument, this.settings.defaultEditorDirection);
+    const svg = renderVisualDiagram(source, block.ownerDocument, this.settings.defaultEditorDirection, this.t("visual.diagramAria"));
     if (!svg) return undefined;
     block.empty();
     block.appendChild(svg);
@@ -311,14 +328,14 @@ export default class OwenMermaidPlugin extends Plugin {
   }
 
   private async download(svg: SVGSVGElement, format: ExportFormat, context: MermaidBlockContext): Promise<void> {
-    await downloadSvgImage(svg, format, this.settings, this.createFilenameContext(context), this.app);
+    await downloadSvgImage(svg, format, this.settings, this.createFilenameContext(context), this.app, createTranslator(this.locale));
   }
 
   private async exportActiveNoteMermaidDiagrams(): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const file = view?.file ?? this.app.workspace.getActiveFile();
     if (!view || !file) {
-      new Notice("활성 Markdown 노트를 찾지 못했습니다.");
+      new Notice(this.t("notice.activeNoteMissing"));
       return;
     }
 
@@ -331,7 +348,7 @@ export default class OwenMermaidPlugin extends Plugin {
       .filter((entry): entry is { block: HTMLElement; svg: SVGSVGElement; index: number } => Boolean(entry.svg));
 
     if (entries.length === 0) {
-      new Notice("렌더링된 Mermaid SVG를 찾지 못했습니다. 읽기 보기나 라이브 프리뷰에서 다시 시도해 주세요.");
+      new Notice(this.t("notice.renderedSvgMissing"));
       return;
     }
 
@@ -356,13 +373,13 @@ export default class OwenMermaidPlugin extends Plugin {
 
     const failures = results.filter((result) => result.error);
     const reportPath = await this.writeBatchReportIfNeeded(file, results);
-    const reportSuffix = reportPath ? ` Report: ${reportPath}` : "";
+    const reportSuffix = reportPath ? this.t("notice.reportSuffix", { path: reportPath }) : "";
     if (failures.length > 0) {
-      new Notice(`Mermaid batch export finished with ${failures.length} failure(s).${reportSuffix}`);
+      new Notice(this.t("notice.batchFailed", { count: failures.length, report: reportSuffix }));
       return;
     }
 
-    new Notice(`Exported ${results.length} Mermaid diagram(s).${reportSuffix}`);
+    new Notice(this.t("notice.batchSucceeded", { count: results.length, report: reportSuffix }));
   }
 
   private async writeBatchReportIfNeeded(file: TFile, results: BatchExportResult[]): Promise<string | undefined> {
@@ -380,22 +397,22 @@ export default class OwenMermaidPlugin extends Plugin {
   private createBatchReport(file: TFile, results: BatchExportResult[]): string {
     const failures = results.filter((result) => result.error);
     const lines = [
-      "# Owen Mermaid Batch Export",
+      `# ${this.t("report.title")}`,
       "",
-      `- Note: ${file.path}`,
-      `- Format: ${this.settings.exportFormat.toUpperCase()}`,
-      `- Completed: ${new Date().toISOString()}`,
-      `- Total: ${results.length}`,
-      `- Failed: ${failures.length}`,
+      `- ${this.t("common.note")}: ${file.path}`,
+      `- ${this.t("common.format")}: ${this.settings.exportFormat.toUpperCase()}`,
+      `- ${this.t("common.completed")}: ${new Date().toISOString()}`,
+      `- ${this.t("common.total")}: ${results.length}`,
+      `- ${this.t("common.failedCount")}: ${failures.length}`,
       "",
-      "| # | Source line | Status | Output | Message |",
+      `| # | ${this.t("common.sourceLine")} | ${this.t("common.status")} | ${this.t("common.output")} | ${this.t("common.message")} |`,
       "| --- | --- | --- | --- | --- |",
     ];
 
     for (const result of results) {
       const sourceLine = result.context.lineStart === undefined ? "" : String(result.context.lineStart + 1);
       lines.push(
-        `| ${result.index} | ${sourceLine} | ${result.error ? "Failed" : "Saved"} | ${formatReportCell(result.path)} | ${formatReportCell(result.error)} |`,
+        `| ${result.index} | ${sourceLine} | ${result.error ? this.t("common.failed") : this.t("common.saved")} | ${formatReportCell(result.path)} | ${formatReportCell(result.error)} |`,
       );
     }
 
@@ -481,7 +498,7 @@ export default class OwenMermaidPlugin extends Plugin {
     if (!context.sourcePath || context.lineStart === undefined || context.lineEnd === undefined) return;
     const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
     if (!(file instanceof TFile)) {
-      new Notice("Mermaid source file was not found.");
+      new Notice(this.t("notice.sourceFileMissing"));
       return;
     }
 
@@ -502,6 +519,22 @@ export default class OwenMermaidPlugin extends Plugin {
     };
     refresh();
     for (const delay of [120, 360, 900]) win.setTimeout(refresh, delay);
+  }
+
+  private refreshInlineToolbarLabels(): void {
+    const labels: Record<string, string> = {
+      zoom: this.t("inline.zoom"),
+      edit: this.t("inline.edit"),
+      download: this.t("inline.download"),
+    };
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      leaf.view.containerEl.querySelectorAll<HTMLButtonElement>(".owen-mermaid-inline-toolbar [data-action]").forEach((button) => {
+        const label = labels[button.dataset.action ?? ""];
+        if (!label) return;
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
+      });
+    }
   }
 
   private sourceName(context: MermaidBlockContext): string {

@@ -3,6 +3,7 @@ import { createConnectorPath as createEditorConnectorPath, getConnectorLabelPoin
 import { HistoryStack } from "./editorHistory";
 import { assessSourceDraft as assessMermaidSourceDraft, createChangeSummary as createMermaidChangeSummary, createSourceDiagnostics as createMermaidSourceDiagnostics, createSourceDiffLines as createMermaidSourceDiffLines, generateEditorSource } from "./editorSource";
 import { cloneDiagram, createEdge, createNode, generateFlowchart, parseFlowchart } from "./flowchart";
+import { createTranslator, type Locale, type Translator } from "./i18n";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
 import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeRoute, EdgeStyle, FlowDiagram, FlowDirection, MermaidRenderedLayout, NodeShape } from "./types";
 
@@ -61,12 +62,12 @@ interface EditorSnapshot {
   selectedNodeIds: string[];
 }
 
-const COLOR_TARGETS: Array<{ value: ColorTarget; label: string; icon: string }> = [
-  { value: "nodeFill", label: "Shape fill", icon: "paint-bucket" },
-  { value: "nodeStroke", label: "Shape line", icon: "square" },
-  { value: "nodeText", label: "Shape text", icon: "type" },
-  { value: "edgeStroke", label: "Line / arrow", icon: "minus" },
-  { value: "edgeText", label: "Line label", icon: "type" },
+const COLOR_TARGET_KEYS: Array<{ value: ColorTarget; label: "editor.shapeFill" | "editor.shapeLine" | "editor.shapeText" | "editor.lineArrow" | "editor.lineLabel"; icon: string }> = [
+  { value: "nodeFill", label: "editor.shapeFill", icon: "paint-bucket" },
+  { value: "nodeStroke", label: "editor.shapeLine", icon: "square" },
+  { value: "nodeText", label: "editor.shapeText", icon: "type" },
+  { value: "edgeStroke", label: "editor.lineArrow", icon: "minus" },
+  { value: "edgeText", label: "editor.lineLabel", icon: "type" },
 ];
 const COLOR_SWATCHES = ["#ffffff", "#f8fafc", "#dbeafe", "#dcfce7", "#fef3c7", "#ffe4e6", "#e9d5ff", "#172033", "#64748b", "#0ea5e9", "#22c55e", "#f59e0b", "#f43f5e", "#8b5cf6"];
 const DEFAULT_NODE_FILL_COLOR = "#ffffff";
@@ -130,6 +131,7 @@ interface ModalResizeState {
 }
 
 export class MermaidEditorModal extends Modal {
+  private readonly t: Translator;
   private diagram: FlowDiagram;
   private savedSource: string;
   private activeSelection: Selection = null;
@@ -307,8 +309,10 @@ export class MermaidEditorModal extends Modal {
     fallbackDirection: FlowDirection,
     private readonly onSave: (nextSource: string) => Promise<void>,
     renderedLayout?: MermaidRenderedLayout,
+    private readonly locale: Locale = "en",
   ) {
     super(app);
+    this.t = createTranslator(locale);
     this.diagram = parseFlowchart(source, fallbackDirection);
     if (renderedLayout) this.applyRenderedLayout(renderedLayout);
     this.savedSource = this.currentSource();
@@ -327,12 +331,12 @@ export class MermaidEditorModal extends Modal {
     header.createEl("div", { cls: "owen-mermaid-editor-title", text: "Owen Mermaid" });
 
     const actions = header.createDiv({ cls: "owen-mermaid-editor-actions" });
-    this.createButton(actions, "undo-2", "Undo", () => this.undoHistory());
-    this.createButton(actions, "redo-2", "Redo", () => this.redoHistory());
-    this.createButton(actions, "rotate-ccw", "Auto layout", () => this.autoLayout());
-    this.createButton(actions, "command", "Actions", () => this.openActionPalette());
-    this.applyButton = this.createButton(actions, "save", "Apply", () => void this.save());
-    this.createButton(actions, "x", "Close", () => this.close());
+    this.createButton(actions, "undo-2", this.t("editor.undo"), () => this.undoHistory());
+    this.createButton(actions, "redo-2", this.t("editor.redo"), () => this.redoHistory());
+    this.createButton(actions, "rotate-ccw", this.t("editor.autoLayout"), () => this.autoLayout());
+    this.createButton(actions, "command", this.t("editor.actions"), () => this.openActionPalette());
+    this.applyButton = this.createButton(actions, "save", this.t("common.apply"), () => void this.save());
+    this.createButton(actions, "x", this.t("common.close"), () => this.close());
 
     this.ribbon = shell.createDiv({ cls: "owen-mermaid-editor-ribbon" });
     this.renderRibbon(true);
@@ -496,12 +500,12 @@ export class MermaidEditorModal extends Modal {
 
   private renderShapeToolGroup(parent: HTMLElement): void {
     const shapesGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    shapesGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Shapes" });
+    shapesGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.shapes") });
     const shapeButtons = shapesGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.shapeTools()) {
       const button = shapeButtons.createEl("button", {
         cls: "owen-mermaid-palette-item",
-        attr: { type: "button", "data-shape": item.shape, "data-shape-action": "create", "aria-pressed": "false", title: `${item.label}: click, then click the canvas. You can also drag it onto the canvas.` },
+        attr: { type: "button", "data-shape": item.shape, "data-shape-action": "create", "aria-pressed": "false", title: this.t("editor.shapeClickHint", { label: item.label }) },
       });
       setIcon(button, item.icon);
       button.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: item.label });
@@ -520,7 +524,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderNodeShapeGroup(parent: HTMLElement): void {
     const shapeGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    shapeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Shape" });
+    shapeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.shape") });
     const shapeButtons = shapeGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.shapeTools()) {
       const button = shapeButtons.createEl("button", {
@@ -540,12 +544,12 @@ export class MermaidEditorModal extends Modal {
     if (this.diagram.nodes.length === 0) return;
 
     const connectorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    connectorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Connect" });
+    connectorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.connect") });
     const connectorButtons = connectorGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.connectorTools(false)) {
       const button = connectorButtons.createEl("button", {
         cls: "owen-mermaid-palette-item owen-mermaid-connector-tool",
-        attr: { type: "button", "data-connector-style": item.style, "aria-pressed": "false", title: `${item.label}: click, then choose two shapes.` },
+        attr: { type: "button", "data-connector-style": item.style, "aria-pressed": "false", title: this.t("editor.connectorClickHint", { label: item.label }) },
       });
       setIcon(button, item.icon);
       button.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: item.label });
@@ -558,7 +562,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderConnectorStyleGroup(parent: HTMLElement): void {
     const group = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Line" });
+    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.line") });
     const items = group.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.connectorTools(this.editorSelection?.kind === "freeLine")) {
       const button = items.createEl("button", {
@@ -578,32 +582,32 @@ export class MermaidEditorModal extends Modal {
     if (this.availableColorTargets().length === 0) return;
 
     const colorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group owen-mermaid-color-group" });
-    colorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Color" });
+    colorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.color") });
     this.renderColorRibbon(colorGroup);
   }
 
   private renderStylePresetGroup(parent: HTMLElement): void {
     if (!this.editorSelection) return;
     const group = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Preset" });
+    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.preset") });
     const items = group.createDiv({ cls: "owen-mermaid-ribbon-items" });
     const presets = this.editorSelection.kind === "node"
       ? [
-        { label: "Calm", icon: "sparkles", fill: "#f8fafc", stroke: "#94a3b8", text: "#172033" },
-        { label: "Focus", icon: "badge-check", fill: "#dbeafe", stroke: "#0ea5e9", text: "#172033" },
-        { label: "Warn", icon: "triangle-alert", fill: "#fef3c7", stroke: "#f59e0b", text: "#172033" },
+        { label: this.t("editor.calm"), icon: "sparkles", fill: "#f8fafc", stroke: "#94a3b8", text: "#172033" },
+        { label: this.t("editor.focus"), icon: "badge-check", fill: "#dbeafe", stroke: "#0ea5e9", text: "#172033" },
+        { label: this.t("editor.warn"), icon: "triangle-alert", fill: "#fef3c7", stroke: "#f59e0b", text: "#172033" },
       ]
       : [
-        { label: "Graphite", icon: "minus", stroke: "#64748b", text: "#172033" },
-        { label: "Sky", icon: "waves", stroke: "#0ea5e9", text: "#0369a1" },
-        { label: "Rose", icon: "activity", stroke: "#f43f5e", text: "#9f1239" },
+        { label: this.t("editor.graphite"), icon: "minus", stroke: "#64748b", text: "#172033" },
+        { label: this.t("editor.sky"), icon: "waves", stroke: "#0ea5e9", text: "#0369a1" },
+        { label: this.t("editor.rose"), icon: "activity", stroke: "#f43f5e", text: "#9f1239" },
       ];
     for (const preset of presets) this.createRibbonButton(items, preset.icon, preset.label, () => this.applyStylePreset(preset));
   }
 
   private renderDiagramGroup(parent: HTMLElement): void {
     const diagramGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    diagramGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Diagram" });
+    diagramGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.diagram") });
     const direction = diagramGroup.createEl("select", { cls: "owen-mermaid-select owen-mermaid-direction-select" });
     for (const value of ["LR", "TD", "RL", "BT"] as FlowDirection[]) {
       direction.createEl("option", { text: value, value });
@@ -617,27 +621,27 @@ export class MermaidEditorModal extends Modal {
 
   private renderArrangeGroup(parent: HTMLElement): void {
     const arrangeGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    arrangeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "Arrange" });
+    arrangeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.arrange") });
     const arrangeButtons = arrangeGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
-    this.createRibbonButton(arrangeButtons, "align-start-horizontal", "Left", () => this.alignSelectedNodes("left"));
-    this.createRibbonButton(arrangeButtons, "align-center-horizontal", "Center", () => this.alignSelectedNodes("centerX"));
-    this.createRibbonButton(arrangeButtons, "align-end-horizontal", "Right", () => this.alignSelectedNodes("right"));
-    this.createRibbonButton(arrangeButtons, "align-start-vertical", "Top", () => this.alignSelectedNodes("top"));
-    this.createRibbonButton(arrangeButtons, "align-center-vertical", "Middle", () => this.alignSelectedNodes("middleY"));
-    this.createRibbonButton(arrangeButtons, "align-end-vertical", "Bottom", () => this.alignSelectedNodes("bottom"));
-    this.createRibbonButton(arrangeButtons, "rows-3", "H Space", () => this.distributeSelectedNodes("horizontal"));
-    this.createRibbonButton(arrangeButtons, "columns-3", "V Space", () => this.distributeSelectedNodes("vertical"));
+    this.createRibbonButton(arrangeButtons, "align-start-horizontal", this.t("editor.left"), () => this.alignSelectedNodes("left"));
+    this.createRibbonButton(arrangeButtons, "align-center-horizontal", this.t("editor.center"), () => this.alignSelectedNodes("centerX"));
+    this.createRibbonButton(arrangeButtons, "align-end-horizontal", this.t("editor.right"), () => this.alignSelectedNodes("right"));
+    this.createRibbonButton(arrangeButtons, "align-start-vertical", this.t("editor.top"), () => this.alignSelectedNodes("top"));
+    this.createRibbonButton(arrangeButtons, "align-center-vertical", this.t("editor.middle"), () => this.alignSelectedNodes("middleY"));
+    this.createRibbonButton(arrangeButtons, "align-end-vertical", this.t("editor.bottom"), () => this.alignSelectedNodes("bottom"));
+    this.createRibbonButton(arrangeButtons, "rows-3", this.t("editor.horizontalSpace"), () => this.distributeSelectedNodes("horizontal"));
+    this.createRibbonButton(arrangeButtons, "columns-3", this.t("editor.verticalSpace"), () => this.distributeSelectedNodes("vertical"));
   }
 
   private renderViewRibbonGroup(parent: HTMLElement): void {
     const viewGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    viewGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: "View" });
+    viewGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.view") });
     const viewButtons = viewGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
-    this.createRibbonButton(viewButtons, "scan", "Fit", () => this.fitDiagramToStage());
-    this.createRibbonButton(viewButtons, "locate-fixed", "Center", () => this.centerSelectionInStage());
-    const snapToggle = viewButtons.createEl("button", { cls: "owen-mermaid-palette-item", attr: { type: "button", title: "Toggle snap", "aria-label": "Toggle snap", "aria-pressed": this.snapEnabled ? "true" : "false" } });
+    this.createRibbonButton(viewButtons, "scan", this.t("editor.fit"), () => this.fitDiagramToStage());
+    this.createRibbonButton(viewButtons, "locate-fixed", this.t("editor.center"), () => this.centerSelectionInStage());
+    const snapToggle = viewButtons.createEl("button", { cls: "owen-mermaid-palette-item", attr: { type: "button", title: this.t("editor.toggleSnap"), "aria-label": this.t("editor.toggleSnap"), "aria-pressed": this.snapEnabled ? "true" : "false" } });
     setIcon(snapToggle, "magnet");
-    snapToggle.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: "Snap" });
+    snapToggle.createSpan({ cls: "owen-mermaid-ribbon-item-label", text: this.t("editor.snap") });
     snapToggle.toggleClass("is-active", this.snapEnabled);
     snapToggle.addEventListener("click", () => {
       this.snapEnabled = !this.snapEnabled;
@@ -656,53 +660,54 @@ export class MermaidEditorModal extends Modal {
 
   private shapeTools(): Array<{ shape: NodeShape; label: string; icon: string }> {
     return [
-      { shape: "rectangle", label: "Rectangle", icon: "square" },
-      { shape: "rounded", label: "Rounded", icon: "box" },
-      { shape: "stadium", label: "Stadium", icon: "pill" },
-      { shape: "diamond", label: "Decision", icon: "diamond" },
-      { shape: "circle", label: "Circle", icon: "circle" },
+      { shape: "rectangle", label: this.t("editor.rectangle"), icon: "square" },
+      { shape: "rounded", label: this.t("editor.rounded"), icon: "box" },
+      { shape: "stadium", label: this.t("editor.stadium"), icon: "pill" },
+      { shape: "diamond", label: this.t("editor.decision"), icon: "diamond" },
+      { shape: "circle", label: this.t("editor.circle"), icon: "circle" },
     ];
   }
 
   private connectorTools(includeFreeLineStyles: boolean): Array<{ style: EdgeStyle; label: string; icon: string }> {
     const styles: Array<{ style: EdgeStyle; label: string; icon: string }> = [
-      { style: "arrow", label: "Arrow", icon: "arrow-right" },
-      { style: "line", label: "Line", icon: "minus" },
-      { style: "dotted", label: "Dotted", icon: "ellipsis" },
+      { style: "arrow", label: this.t("editor.arrow"), icon: "arrow-right" },
+      { style: "line", label: this.t("editor.line"), icon: "minus" },
+      { style: "dotted", label: this.t("editor.dotted"), icon: "ellipsis" },
     ];
-    if (includeFreeLineStyles || this.diagram.syntax !== "sequenceDiagram") styles.push({ style: "thick", label: "Thick", icon: "grip-horizontal" });
+    if (includeFreeLineStyles || this.diagram.syntax !== "sequenceDiagram") styles.push({ style: "thick", label: this.t("editor.thick"), icon: "grip-horizontal" });
     return styles.filter((item) => includeFreeLineStyles || this.diagram.syntax !== "sequenceDiagram" || item.style === "arrow" || item.style === "dotted");
   }
 
   private renderColorRibbon(parent: HTMLElement): void {
     const row = parent.createDiv({ cls: "owen-mermaid-color-row" });
     this.colorTargetSelect = row.createEl("select", { cls: "owen-mermaid-select owen-mermaid-color-target" });
-    for (const target of COLOR_TARGETS) this.colorTargetSelect.createEl("option", { text: target.label, value: target.value });
+    for (const target of COLOR_TARGET_KEYS) this.colorTargetSelect.createEl("option", { text: this.t(target.label), value: target.value });
     this.colorTargetSelect.value = this.colorTarget;
     this.colorTargetSelect.addEventListener("change", () => {
       this.colorTarget = this.colorTargetSelect?.value as ColorTarget;
       this.updateColorControls();
     });
 
-    this.colorInput = row.createEl("input", { cls: "owen-mermaid-color-input", attr: { type: "color", title: "Apply selected color" } });
+    this.colorInput = row.createEl("input", { cls: "owen-mermaid-color-input", attr: { type: "color", title: this.t("editor.applySelectedColor") } });
     this.colorInput.addEventListener("input", () => this.applySelectedColor(this.colorTarget, this.colorInput?.value));
 
-    this.colorResetButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: "Clear selected color", "aria-label": "Clear selected color" } });
+    this.colorResetButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: this.t("editor.clearSelectedColor"), "aria-label": this.t("editor.clearSelectedColor") } });
     setIcon(this.colorResetButton, "rotate-ccw");
     this.colorResetButton.addEventListener("click", () => this.applySelectedColor(this.colorTarget, undefined));
 
-    this.colorClearButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: "Clear selected styling", "aria-label": "Clear selected styling" } });
+    this.colorClearButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: this.t("editor.clearSelectedStyling"), "aria-label": this.t("editor.clearSelectedStyling") } });
     setIcon(this.colorClearButton, "eraser");
     this.colorClearButton.addEventListener("click", () => this.clearSelectedStyling());
 
-    this.colorApplySimilarButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: "Apply styling to same type", "aria-label": "Apply styling to same type" } });
+    this.colorApplySimilarButton = row.createEl("button", { cls: "owen-mermaid-palette-item owen-mermaid-color-reset", attr: { type: "button", title: this.t("editor.applySameType"), "aria-label": this.t("editor.applySameType") } });
     setIcon(this.colorApplySimilarButton, "copy-check");
     this.colorApplySimilarButton.addEventListener("click", () => this.applyStyleToSimilarItems());
 
     this.colorTargetButtons.clear();
     const targetIcons = parent.createDiv({ cls: "owen-mermaid-color-target-icons" });
-    for (const target of COLOR_TARGETS) {
-      const button = targetIcons.createEl("button", { cls: "owen-mermaid-color-target-button", attr: { type: "button", title: target.label, "aria-label": target.label, "aria-pressed": "false" } });
+    for (const target of COLOR_TARGET_KEYS) {
+      const label = this.t(target.label);
+      const button = targetIcons.createEl("button", { cls: "owen-mermaid-color-target-button", attr: { type: "button", title: label, "aria-label": label, "aria-pressed": "false" } });
       setIcon(button, target.icon);
       button.addEventListener("click", () => {
         this.colorTarget = target.value;
@@ -713,7 +718,7 @@ export class MermaidEditorModal extends Modal {
 
     const swatches = parent.createDiv({ cls: "owen-mermaid-color-swatches" });
     for (const color of COLOR_SWATCHES) {
-      const swatch = swatches.createEl("button", { cls: "owen-mermaid-color-swatch", attr: { type: "button", title: color, "aria-label": `Apply ${color}` } });
+      const swatch = swatches.createEl("button", { cls: "owen-mermaid-color-swatch", attr: { type: "button", title: color, "aria-label": this.t("editor.applyColor", { color }) } });
       swatch.style.setProperty("--owen-mermaid-swatch", color);
       swatch.addEventListener("click", () => this.applySelectedColor(this.colorTarget, color));
     }
@@ -737,7 +742,7 @@ export class MermaidEditorModal extends Modal {
     this.colorResetButton.disabled = !enabled || !this.getSelectedColor(this.colorTarget);
     if (this.colorClearButton) this.colorClearButton.disabled = !enabled || !this.selectionHasStyling();
     if (this.colorApplySimilarButton) this.colorApplySimilarButton.disabled = !enabled || !this.selectionHasStyling();
-    for (const target of COLOR_TARGETS) {
+    for (const target of COLOR_TARGET_KEYS) {
       const button = this.colorTargetButtons.get(target.value);
       if (!button) continue;
       const targetAvailable = available.includes(target.value);
@@ -748,7 +753,8 @@ export class MermaidEditorModal extends Modal {
       button.toggleClass("has-color", Boolean(targetColor));
       button.style.setProperty("--owen-mermaid-target-color", displayColor);
       button.setAttribute("aria-pressed", target.value === this.colorTarget ? "true" : "false");
-      button.setAttribute("title", targetColor ? `${target.label}: ${targetColor}` : `${target.label}: default`);
+      const label = this.t(target.label);
+      button.setAttribute("title", targetColor ? this.t("editor.colorValue", { target: label, color: targetColor }) : this.t("editor.colorDefault", { target: label }));
     }
     this.modalEl.querySelectorAll<HTMLButtonElement>(".owen-mermaid-color-swatch").forEach((button) => {
       button.disabled = !enabled;
@@ -1048,7 +1054,7 @@ export class MermaidEditorModal extends Modal {
     group.setAttribute("transform", `translate(${node.x}, ${y})`);
     group.setAttribute("tabindex", "0");
     group.setAttribute("role", "button");
-    group.setAttribute("aria-label", `Participant ${node.id}: ${node.label}`);
+    group.setAttribute("aria-label", this.t("editor.participantAria", { id: node.id, label: node.label }));
     group.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
@@ -1108,7 +1114,7 @@ export class MermaidEditorModal extends Modal {
     const connectTarget = this.connectTargetNodeId === node.id;
     const group = parent.createSvg("g", {
       cls: "owen-mermaid-node",
-      attr: { tabindex: "0", role: "button", "aria-label": `Node ${node.id}: ${node.label}` },
+      attr: { tabindex: "0", role: "button", "aria-label": this.t("editor.nodeAria", { id: node.id, label: node.label }) },
     });
     if (selected) group.addClass("is-selected");
     if (connectingSource) group.addClass("is-connecting-source");
@@ -1363,7 +1369,7 @@ export class MermaidEditorModal extends Modal {
   private renderInspector(): void {
     if (!this.inspector) return;
     this.inspector.empty();
-    this.inspector.createEl("div", { cls: "owen-mermaid-section-title", text: "Inspector" });
+    this.inspector.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.inspector") });
     this.renderInspectorTabs(this.inspector);
     this.renderRenderSummary(this.inspector);
 
@@ -1381,7 +1387,7 @@ export class MermaidEditorModal extends Modal {
 
     if (!this.editorSelection) {
       this.renderConnectControls(this.inspector);
-      this.inspector.createEl("p", { cls: "owen-mermaid-empty-state", text: "Select a node or connector." });
+      this.inspector.createEl("p", { cls: "owen-mermaid-empty-state", text: this.t("editor.selectItem") });
       return;
     }
 
@@ -1402,9 +1408,9 @@ export class MermaidEditorModal extends Modal {
   private renderInspectorTabs(parent: HTMLElement): void {
     const tabs = parent.createDiv({ cls: "owen-mermaid-inspector-tabs" });
     for (const tab of [
-      { value: "inspect", label: "Inspect" },
-      { value: "source", label: "Source" },
-      { value: "changes", label: "Changes" },
+      { value: "inspect", label: this.t("editor.inspect") },
+      { value: "source", label: this.t("editor.source") },
+      { value: "changes", label: this.t("editor.changes") },
     ] as Array<{ value: InspectorTab; label: string }>) {
       const button = tabs.createEl("button", { cls: "owen-mermaid-inspector-tab", text: tab.label, attr: { type: "button", "aria-pressed": this.inspectorTab === tab.value ? "true" : "false" } });
       button.toggleClass("is-active", this.inspectorTab === tab.value);
@@ -1423,26 +1429,26 @@ export class MermaidEditorModal extends Modal {
   }
 
   private renderSupportText(): string {
-    if (this.diagram.syntax === "flowchart") return "Shapes, text, connectors, colors, and basic styles render in Mermaid; manual layout is stored as editor metadata.";
-    if (this.diagram.syntax === "stateDiagram") return "State labels and colors render in Mermaid; manual layout is stored as editor metadata.";
-    return "Participants and messages render in Mermaid; manual layout and most visual styling are editor metadata.";
+    if (this.diagram.syntax === "flowchart") return this.t("editor.support.flowchart");
+    if (this.diagram.syntax === "stateDiagram") return this.t("editor.support.state");
+    return this.t("editor.support.sequence");
   }
 
   private renderChangeSummary(parent: HTMLElement): void {
     const items = this.createChangeSummary();
     if (items.length === 0) return;
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Summary" });
+    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.summary") });
     const list = parent.createEl("ul", { cls: "owen-mermaid-change-summary" });
     for (const item of items) list.createEl("li", { text: item });
   }
 
   private renderUnsupportedSummary(parent: HTMLElement): void {
     if (this.diagram.unsupportedLines.length === 0) return;
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Preserved" });
+    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.preserved") });
     const subgraphs = this.getSubgraphTitles();
     if (subgraphs.length > 0) {
       const list = parent.createEl("ul", { cls: "owen-mermaid-preserved-groups" });
-      for (const title of subgraphs) list.createEl("li", { text: `Locked subgraph: ${title}` });
+      for (const title of subgraphs) list.createEl("li", { text: this.t("editor.lockedSubgraph", { title }) });
     }
     const box = parent.createEl("textarea", { cls: "owen-mermaid-preserved-preview" });
     box.readOnly = true;
@@ -1459,7 +1465,7 @@ export class MermaidEditorModal extends Modal {
       const y = bounds.minY + 48 + index * 38;
       const item = group.createSvg("g", { cls: "owen-mermaid-subgraph-hint" });
       item.createSvg("rect", { attr: { x: String(bounds.minX + 24), y: String(y - 20), width: "220", height: "28", rx: "7" } });
-      item.createSvg("text", { attr: { x: String(bounds.minX + 38), y: String(y), "text-anchor": "start" } }).setText(`Locked: ${title}`);
+      item.createSvg("text", { attr: { x: String(bounds.minX + 38), y: String(y), "text-anchor": "start" } }).setText(this.t("editor.locked", { title }));
     });
   }
 
@@ -1485,7 +1491,7 @@ export class MermaidEditorModal extends Modal {
   private renderSourceDiff(parent: HTMLElement): void {
     const diff = this.createSourceDiffLines();
     if (diff.length === 0) return;
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Changes" });
+    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.changes") });
     this.diffPreview = parent.createEl("pre", { cls: "owen-mermaid-diff-preview" });
     for (const line of diff) {
       this.diffPreview.createEl("span", { cls: `owen-mermaid-diff-line is-${line.kind}`, text: line.text });
@@ -1493,15 +1499,15 @@ export class MermaidEditorModal extends Modal {
   }
 
   private renderNodeInspector(parent: HTMLElement, node: DiagramNode): void {
-    this.createTextField(parent, "ID", node.id, (value) => this.renameNode(node, value));
-    this.createTextField(parent, "Text", node.label, (value) => {
+    this.createTextField(parent, this.t("editor.id"), node.id, (value) => this.renameNode(node, value));
+    this.createTextField(parent, this.t("editor.text"), node.label, (value) => {
       node.label = value;
       this.renderCanvas();
       this.updateCodePreview();
     }, true);
 
     const shape = parent.createEl("select", { cls: "owen-mermaid-select" });
-    for (const value of ["rectangle", "rounded", "stadium", "diamond", "circle"] as NodeShape[]) shape.createEl("option", { text: value, value });
+    for (const item of this.shapeTools()) shape.createEl("option", { text: item.label, value: item.shape });
     shape.value = node.shape;
     shape.addEventListener("change", () => {
       this.recordHistory();
@@ -1509,38 +1515,38 @@ export class MermaidEditorModal extends Modal {
       this.render();
     });
 
-    this.createNumberField(parent, "Border width", node.strokeWidth, DEFAULT_NODE_STROKE_WIDTH, 0.5, 10, 0.5, (value) => {
+    this.createNumberField(parent, this.t("editor.borderWidth"), node.strokeWidth, DEFAULT_NODE_STROKE_WIDTH, 0.5, 10, 0.5, (value) => {
       node.strokeWidth = value;
       this.renderCanvas();
       this.updateCodePreview();
       this.updateColorControls();
     });
-    this.createNumberField(parent, "Text size", node.textSize, DEFAULT_NODE_TEXT_SIZE, 8, 32, 1, (value) => {
+    this.createNumberField(parent, this.t("editor.textSize"), node.textSize, DEFAULT_NODE_TEXT_SIZE, 8, 32, 1, (value) => {
       node.textSize = value;
       this.renderCanvas();
       this.updateCodePreview();
       this.updateColorControls();
     });
 
-    this.createDangerButton(parent, "Delete node", () => this.deleteNode(node.id));
+    this.createDangerButton(parent, this.t("editor.deleteNode"), () => this.deleteNode(node.id));
   }
 
   private renderMultiNodeInspector(parent: HTMLElement): void {
-    parent.createEl("p", { cls: "owen-mermaid-empty-state", text: `${this.selectedNodeIds.size} nodes selected.` });
+    parent.createEl("p", { cls: "owen-mermaid-empty-state", text: this.t("editor.nodesSelected", { count: this.selectedNodeIds.size }) });
     const grid = parent.createDiv({ cls: "owen-mermaid-inspector-grid" });
-    this.createActionButton(grid, "Align left", () => this.alignSelectedNodes("left"));
-    this.createActionButton(grid, "Align center", () => this.alignSelectedNodes("centerX"));
-    this.createActionButton(grid, "Align right", () => this.alignSelectedNodes("right"));
-    this.createActionButton(grid, "Align top", () => this.alignSelectedNodes("top"));
-    this.createActionButton(grid, "Align middle", () => this.alignSelectedNodes("middleY"));
-    this.createActionButton(grid, "Align bottom", () => this.alignSelectedNodes("bottom"));
-    this.createActionButton(grid, "Distribute X", () => this.distributeSelectedNodes("horizontal"));
-    this.createActionButton(grid, "Distribute Y", () => this.distributeSelectedNodes("vertical"));
-    this.createDangerButton(parent, "Delete selected nodes", () => this.deleteSelectedNodes());
+    this.createActionButton(grid, this.t("editor.alignLeft"), () => this.alignSelectedNodes("left"));
+    this.createActionButton(grid, this.t("editor.alignCenter"), () => this.alignSelectedNodes("centerX"));
+    this.createActionButton(grid, this.t("editor.alignRight"), () => this.alignSelectedNodes("right"));
+    this.createActionButton(grid, this.t("editor.alignTop"), () => this.alignSelectedNodes("top"));
+    this.createActionButton(grid, this.t("editor.alignMiddle"), () => this.alignSelectedNodes("middleY"));
+    this.createActionButton(grid, this.t("editor.alignBottom"), () => this.alignSelectedNodes("bottom"));
+    this.createActionButton(grid, this.t("editor.distributeX"), () => this.distributeSelectedNodes("horizontal"));
+    this.createActionButton(grid, this.t("editor.distributeY"), () => this.distributeSelectedNodes("vertical"));
+    this.createDangerButton(parent, this.t("editor.deleteSelectedNodes"), () => this.deleteSelectedNodes());
   }
 
   private renderEdgeInspector(parent: HTMLElement, edge: DiagramEdge): void {
-    this.createTextField(parent, "Label", edge.label, (value) => {
+    this.createTextField(parent, this.t("editor.label"), edge.label, (value) => {
       edge.label = value;
       this.renderCanvas();
       this.updateCodePreview();
@@ -1548,7 +1554,7 @@ export class MermaidEditorModal extends Modal {
 
     const style = parent.createEl("select", { cls: "owen-mermaid-select" });
     const styles = this.diagram.syntax === "sequenceDiagram" ? (["arrow", "dotted"] as const) : (["line", "arrow", "dotted", "thick"] as const);
-    for (const value of styles) style.createEl("option", { text: value, value });
+    for (const value of styles) style.createEl("option", { text: this.connectorTools(true).find((item) => item.style === value)?.label ?? value, value });
     style.value = edge.style;
     style.addEventListener("change", () => {
       this.recordHistory();
@@ -1557,7 +1563,7 @@ export class MermaidEditorModal extends Modal {
     });
 
     const route = parent.createEl("select", { cls: "owen-mermaid-select" });
-    for (const value of ["curve", "straight", "elbow"] as EdgeRoute[]) route.createEl("option", { text: value, value });
+    for (const value of ["curve", "straight", "elbow"] as EdgeRoute[]) route.createEl("option", { text: this.routeLabel(value), value });
     route.value = edge.route ?? "curve";
     route.addEventListener("change", () => {
       this.recordHistory();
@@ -1566,38 +1572,38 @@ export class MermaidEditorModal extends Modal {
       this.render();
     });
 
-    this.createNumberField(parent, "Line width", edge.strokeWidth, edge.style === "thick" ? 4 : DEFAULT_EDGE_STROKE_WIDTH, 0.5, 12, 0.5, (value) => {
+    this.createNumberField(parent, this.t("editor.lineWidth"), edge.strokeWidth, edge.style === "thick" ? 4 : DEFAULT_EDGE_STROKE_WIDTH, 0.5, 12, 0.5, (value) => {
       edge.strokeWidth = value;
       this.renderCanvas();
       this.updateCodePreview();
       this.updateColorControls();
     });
-    this.createNumberField(parent, "Label size", edge.textSize, DEFAULT_EDGE_TEXT_SIZE, 8, 32, 1, (value) => {
+    this.createNumberField(parent, this.t("editor.labelSize"), edge.textSize, DEFAULT_EDGE_TEXT_SIZE, 8, 32, 1, (value) => {
       edge.textSize = value;
       this.renderCanvas();
       this.updateCodePreview();
       this.updateColorControls();
     });
 
-    this.createActionButton(parent, "Reset label position", () => {
+    this.createActionButton(parent, this.t("editor.resetLabelPosition"), () => {
       this.recordHistory();
       edge.labelOffsetX = 0;
       edge.labelOffsetY = 0;
       this.render();
     });
 
-    this.createDangerButton(parent, "Delete connector", () => this.deleteEdge(edge.id));
+    this.createDangerButton(parent, this.t("editor.deleteConnector"), () => this.deleteEdge(edge.id));
   }
 
   private renderFreeLineInspector(parent: HTMLElement, line: DiagramFreeLine): void {
-    this.createTextField(parent, "Label", line.label, (value) => {
+    this.createTextField(parent, this.t("editor.label"), line.label, (value) => {
       line.label = value;
       this.renderCanvas();
       this.updateCodePreview();
     }, true);
 
     const style = parent.createEl("select", { cls: "owen-mermaid-select" });
-    for (const value of ["line", "arrow", "dotted", "thick"] as const) style.createEl("option", { text: value, value });
+    for (const value of ["line", "arrow", "dotted", "thick"] as const) style.createEl("option", { text: this.connectorTools(true).find((item) => item.style === value)?.label ?? value, value });
     style.value = line.style;
     style.addEventListener("change", () => {
       this.recordHistory();
@@ -1606,7 +1612,7 @@ export class MermaidEditorModal extends Modal {
     });
 
     const route = parent.createEl("select", { cls: "owen-mermaid-select" });
-    for (const value of ["curve", "straight", "elbow"] as EdgeRoute[]) route.createEl("option", { text: value, value });
+    for (const value of ["curve", "straight", "elbow"] as EdgeRoute[]) route.createEl("option", { text: this.routeLabel(value), value });
     route.value = line.route ?? "curve";
     route.addEventListener("change", () => {
       this.recordHistory();
@@ -1614,31 +1620,31 @@ export class MermaidEditorModal extends Modal {
       this.render();
     });
 
-    this.createNumberField(parent, "Line width", line.strokeWidth, line.style === "thick" ? 4 : DEFAULT_EDGE_STROKE_WIDTH, 0.5, 12, 0.5, (value) => {
+    this.createNumberField(parent, this.t("editor.lineWidth"), line.strokeWidth, line.style === "thick" ? 4 : DEFAULT_EDGE_STROKE_WIDTH, 0.5, 12, 0.5, (value) => {
       line.strokeWidth = value;
       this.renderCanvas();
       this.updateCodePreview();
       this.updateColorControls();
     });
-    this.createNumberField(parent, "Label size", line.textSize, DEFAULT_EDGE_TEXT_SIZE, 8, 32, 1, (value) => {
+    this.createNumberField(parent, this.t("editor.labelSize"), line.textSize, DEFAULT_EDGE_TEXT_SIZE, 8, 32, 1, (value) => {
       line.textSize = value;
       this.renderCanvas();
       this.updateCodePreview();
       this.updateColorControls();
     });
 
-    this.createActionButton(parent, "Reset label position", () => {
+    this.createActionButton(parent, this.t("editor.resetLabelPosition"), () => {
       this.recordHistory();
       line.labelOffsetX = 0;
       line.labelOffsetY = 0;
       this.render();
     });
 
-    this.createDangerButton(parent, "Delete line", () => this.deleteFreeLine(line.id));
+    this.createDangerButton(parent, this.t("editor.deleteLine"), () => this.deleteFreeLine(line.id));
   }
 
   private renderConnectControls(parent: HTMLElement): void {
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Connector" });
+    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.connector") });
     const row = parent.createDiv({ cls: "owen-mermaid-connect-row" });
     const from = row.createEl("select", { cls: "owen-mermaid-select" });
     const to = row.createEl("select", { cls: "owen-mermaid-select" });
@@ -1648,7 +1654,7 @@ export class MermaidEditorModal extends Modal {
     }
     if (this.diagram.nodes[1]) to.value = this.diagram.nodes[1].id;
 
-    const button = parent.createEl("button", { cls: "owen-mermaid-action-button", text: "Connect", attr: { type: "button" } });
+    const button = parent.createEl("button", { cls: "owen-mermaid-action-button", text: this.t("editor.connect"), attr: { type: "button" } });
     button.addEventListener("click", () => {
       if (!from.value || !to.value || from.value === to.value) return;
       this.recordHistory();
@@ -1661,8 +1667,8 @@ export class MermaidEditorModal extends Modal {
   private renderCodePreview(parent: HTMLElement): void {
     parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Mermaid" });
     const actions = parent.createDiv({ cls: "owen-mermaid-source-actions" });
-    const editButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: this.sourceEditing ? "Cancel source edit" : "Edit source", attr: { type: "button" } });
-    const applyButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: "Apply source", attr: { type: "button" } });
+    const editButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: this.sourceEditing ? this.t("editor.cancelSourceEdit") : this.t("editor.editSource"), attr: { type: "button" } });
+    const applyButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: this.t("editor.applySource"), attr: { type: "button" } });
     applyButton.disabled = !this.sourceEditing;
 
     this.renderSourceDiagnostics(parent);
@@ -1697,7 +1703,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderSourceDiagnostics(parent: HTMLElement): void {
     const source = this.sourceEditing ? this.sourceDraft ?? this.currentSource() : this.currentSource();
-    const diagnostics = createMermaidSourceDiagnostics(source, this.diagram);
+    const diagnostics = createMermaidSourceDiagnostics(source, this.diagram, this.locale);
     if (diagnostics.length === 0) return;
     const box = parent.createDiv({ cls: "owen-mermaid-source-diagnostics" });
     for (const diagnostic of diagnostics) box.createDiv({ cls: `owen-mermaid-source-diagnostic is-${diagnostic.severity}`, text: diagnostic.message });
@@ -1761,22 +1767,28 @@ export class MermaidEditorModal extends Modal {
     button.addEventListener("click", onClick);
   }
 
+  private routeLabel(route: EdgeRoute): string {
+    if (route === "straight") return this.t("editor.straight");
+    if (route === "elbow") return this.t("editor.elbow");
+    return this.t("editor.curve");
+  }
+
   private openActionPalette(): void {
-    new MermaidActionPaletteModal(this.app, this.getEditorActions()).open();
+    new MermaidActionPaletteModal(this.app, this.getEditorActions(), this.t).open();
   }
 
   private getEditorActions(): EditorAction[] {
     return [
-      { label: "Add rectangle", keywords: "shape node rectangle", run: () => this.placeShapeAtCenter("rectangle") },
-      { label: "Add decision", keywords: "shape node diamond decision", run: () => this.placeShapeAtCenter("diamond") },
-      { label: "Fit view", keywords: "zoom fit view", run: () => this.fitDiagramToStage() },
-      { label: "Reset zoom", keywords: "zoom reset 100", run: () => this.setEditorZoom(1) },
-      { label: "Auto layout", keywords: "layout arrange", run: () => this.autoLayout() },
-      { label: "Copy selection", keywords: "copy duplicate", run: () => this.copySelection() },
-      { label: "Paste selection", keywords: "paste duplicate", run: () => this.pasteSelection() },
-      { label: "Select all nodes", keywords: "select all", run: () => this.selectAllNodes() },
-      { label: "Edit source", keywords: "source mermaid code", run: () => { this.inspectorTab = "source"; this.sourceEditing = true; this.sourceDraft = this.currentSource(); this.renderInspector(); } },
-      { label: "Show changes", keywords: "diff changes summary", run: () => { this.inspectorTab = "changes"; this.renderInspector(); } },
+      { label: this.t("editor.addRectangle"), keywords: "shape node rectangle", run: () => this.placeShapeAtCenter("rectangle") },
+      { label: this.t("editor.addDecision"), keywords: "shape node diamond decision", run: () => this.placeShapeAtCenter("diamond") },
+      { label: this.t("editor.fitView"), keywords: "zoom fit view", run: () => this.fitDiagramToStage() },
+      { label: this.t("editor.resetZoom"), keywords: "zoom reset 100", run: () => this.setEditorZoom(1) },
+      { label: this.t("editor.autoLayout"), keywords: "layout arrange", run: () => this.autoLayout() },
+      { label: this.t("editor.copySelection"), keywords: "copy duplicate", run: () => this.copySelection() },
+      { label: this.t("editor.pasteSelection"), keywords: "paste duplicate", run: () => this.pasteSelection() },
+      { label: this.t("editor.selectAllNodes"), keywords: "select all", run: () => this.selectAllNodes() },
+      { label: this.t("editor.editSource"), keywords: "source mermaid code", run: () => { this.inspectorTab = "source"; this.sourceEditing = true; this.sourceDraft = this.currentSource(); this.renderInspector(); } },
+      { label: this.t("editor.showChanges"), keywords: "diff changes summary", run: () => { this.inspectorTab = "changes"; this.renderInspector(); } },
     ];
   }
 
@@ -1803,7 +1815,7 @@ export class MermaidEditorModal extends Modal {
   private promptNodeLabel(node: DiagramNode): void {
     this.editorSelection = { kind: "node", id: node.id };
     this.render();
-    this.openTextEditor("Edit node text", "Text", node.label, false, (value) => {
+    this.openTextEditor(this.t("editor.editNodeText"), this.t("editor.text"), node.label, false, (value) => {
       this.recordHistory();
       node.label = value;
       this.editorSelection = { kind: "node", id: node.id };
@@ -1814,7 +1826,7 @@ export class MermaidEditorModal extends Modal {
   private promptEdgeLabel(edge: DiagramEdge): void {
     this.editorSelection = { kind: "edge", id: edge.id };
     this.render();
-    this.openTextEditor("Edit connector label", "Label", edge.label, true, (value) => {
+    this.openTextEditor(this.t("editor.editConnectorLabel"), this.t("editor.label"), edge.label, true, (value) => {
       this.recordHistory();
       edge.label = value;
       this.editorSelection = { kind: "edge", id: edge.id };
@@ -1825,7 +1837,7 @@ export class MermaidEditorModal extends Modal {
   private promptFreeLineLabel(line: DiagramFreeLine): void {
     this.editorSelection = { kind: "freeLine", id: line.id };
     this.render();
-    this.openTextEditor("Edit line label", "Label", line.label, true, (value) => {
+    this.openTextEditor(this.t("editor.editLineLabel"), this.t("editor.label"), line.label, true, (value) => {
       this.recordHistory();
       line.label = value;
       this.editorSelection = { kind: "freeLine", id: line.id };
@@ -1836,7 +1848,7 @@ export class MermaidEditorModal extends Modal {
   private openTextEditor(title: string, label: string, value: string, allowEmpty: boolean, onSubmit: (value: string) => void): void {
     const win = this.containerEl.ownerDocument.defaultView ?? window;
     win.setTimeout(() => {
-      new MermaidTextEditModal(this.app, title, label, value, allowEmpty, onSubmit).open();
+      new MermaidTextEditModal(this.app, title, label, value, allowEmpty, onSubmit, this.t).open();
     }, 0);
   }
 
@@ -1848,18 +1860,18 @@ export class MermaidEditorModal extends Modal {
     this.render();
 
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle("Edit text").setIcon("type").onClick(() => this.promptNodeLabel(node)));
-    menu.addItem((item) => item.setTitle("Start connector").setIcon("move-up-right").onClick(() => this.startConnectionFrom(node.id)));
-    menu.addItem((item) => item.setTitle("Self connector").setIcon("refresh-cw").onClick(() => this.createSelfConnector(node.id)));
-    menu.addItem((item) => item.setTitle("Duplicate shape").setIcon("copy").onClick(() => this.duplicateNode(node)));
+    menu.addItem((item) => item.setTitle(this.t("editor.editText")).setIcon("type").onClick(() => this.promptNodeLabel(node)));
+    menu.addItem((item) => item.setTitle(this.t("editor.startConnector")).setIcon("move-up-right").onClick(() => this.startConnectionFrom(node.id)));
+    menu.addItem((item) => item.setTitle(this.t("editor.selfConnector")).setIcon("refresh-cw").onClick(() => this.createSelfConnector(node.id)));
+    menu.addItem((item) => item.setTitle(this.t("editor.duplicateShape")).setIcon("copy").onClick(() => this.duplicateNode(node)));
     if (this.connectingFromNodeId) {
-      menu.addItem((item) => item.setTitle("Cancel connector").setIcon("x").onClick(() => {
+      menu.addItem((item) => item.setTitle(this.t("editor.cancelConnector")).setIcon("x").onClick(() => {
         this.clearConnectionMode();
         this.render();
       }));
     }
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Delete shape").setIcon("trash").onClick(() => this.deleteNode(node.id)));
+    menu.addItem((item) => item.setTitle(this.t("editor.deleteShape")).setIcon("trash").onClick(() => this.deleteNode(node.id)));
     menu.showAtMouseEvent(event);
   }
 
@@ -1871,20 +1883,20 @@ export class MermaidEditorModal extends Modal {
     this.render();
 
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle("Edit label").setIcon("type").onClick(() => this.promptEdgeLabel(edge)));
+    menu.addItem((item) => item.setTitle(this.t("editor.editLabel")).setIcon("type").onClick(() => this.promptEdgeLabel(edge)));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Reverse direction").setIcon("arrow-left-right").onClick(() => this.reverseEdge(edge)));
+    menu.addItem((item) => item.setTitle(this.t("editor.reverseDirection")).setIcon("arrow-left-right").onClick(() => this.reverseEdge(edge)));
     menu.addSeparator();
     if (this.diagram.syntax !== "sequenceDiagram") {
-      menu.addItem((item) => item.setTitle("Line connector").setIcon("minus").onClick(() => this.setEdgeStyle(edge, "line")));
+      menu.addItem((item) => item.setTitle(this.t("editor.lineConnector")).setIcon("minus").onClick(() => this.setEdgeStyle(edge, "line")));
     }
-    menu.addItem((item) => item.setTitle("Arrow connector").setIcon("arrow-right").onClick(() => this.setEdgeStyle(edge, "arrow")));
-    menu.addItem((item) => item.setTitle("Dotted connector").setIcon("ellipsis").onClick(() => this.setEdgeStyle(edge, "dotted")));
+    menu.addItem((item) => item.setTitle(this.t("editor.arrowConnector")).setIcon("arrow-right").onClick(() => this.setEdgeStyle(edge, "arrow")));
+    menu.addItem((item) => item.setTitle(this.t("editor.dottedConnector")).setIcon("ellipsis").onClick(() => this.setEdgeStyle(edge, "dotted")));
     if (this.diagram.syntax !== "sequenceDiagram") {
-      menu.addItem((item) => item.setTitle("Thick connector").setIcon("grip-horizontal").onClick(() => this.setEdgeStyle(edge, "thick")));
+      menu.addItem((item) => item.setTitle(this.t("editor.thickConnector")).setIcon("grip-horizontal").onClick(() => this.setEdgeStyle(edge, "thick")));
     }
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Delete connector").setIcon("trash").onClick(() => this.deleteEdge(edge.id)));
+    menu.addItem((item) => item.setTitle(this.t("editor.deleteConnector")).setIcon("trash").onClick(() => this.deleteEdge(edge.id)));
     menu.showAtMouseEvent(event);
   }
 
@@ -1896,14 +1908,14 @@ export class MermaidEditorModal extends Modal {
     this.render();
 
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle("Edit label").setIcon("type").onClick(() => this.promptFreeLineLabel(line)));
+    menu.addItem((item) => item.setTitle(this.t("editor.editLabel")).setIcon("type").onClick(() => this.promptFreeLineLabel(line)));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Line").setIcon("minus").onClick(() => this.setFreeLineStyle(line, "line")));
-    menu.addItem((item) => item.setTitle("Arrow line").setIcon("arrow-right").onClick(() => this.setFreeLineStyle(line, "arrow")));
-    menu.addItem((item) => item.setTitle("Dotted line").setIcon("ellipsis").onClick(() => this.setFreeLineStyle(line, "dotted")));
-    menu.addItem((item) => item.setTitle("Thick line").setIcon("grip-horizontal").onClick(() => this.setFreeLineStyle(line, "thick")));
+    menu.addItem((item) => item.setTitle(this.t("editor.line")).setIcon("minus").onClick(() => this.setFreeLineStyle(line, "line")));
+    menu.addItem((item) => item.setTitle(this.t("editor.arrowLine")).setIcon("arrow-right").onClick(() => this.setFreeLineStyle(line, "arrow")));
+    menu.addItem((item) => item.setTitle(this.t("editor.dottedLine")).setIcon("ellipsis").onClick(() => this.setFreeLineStyle(line, "dotted")));
+    menu.addItem((item) => item.setTitle(this.t("editor.thickLine")).setIcon("grip-horizontal").onClick(() => this.setFreeLineStyle(line, "thick")));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle("Delete line").setIcon("trash").onClick(() => this.deleteFreeLine(line.id)));
+    menu.addItem((item) => item.setTitle(this.t("editor.deleteLine")).setIcon("trash").onClick(() => this.deleteFreeLine(line.id)));
     menu.showAtMouseEvent(event);
   }
 
@@ -1986,7 +1998,7 @@ export class MermaidEditorModal extends Modal {
   private renameNode(node: DiagramNode, value: string): void {
     const nextId = value.replace(/[^A-Za-z0-9_-]/g, "");
     if (!nextId || this.diagram.nodes.some((item) => item.id === nextId && item !== node)) {
-      new Notice("Use a unique Mermaid node ID.");
+      new Notice(this.t("editor.uniqueNodeId"));
       return;
     }
     const oldId = node.id;
@@ -2091,10 +2103,10 @@ export class MermaidEditorModal extends Modal {
       await this.onSave(nextSource);
       this.savedSource = nextSource;
       this.suppressClosePrompt = false;
-      new Notice("Mermaid diagram updated.");
+      new Notice(this.t("editor.updated"));
       this.render();
     } catch (error) {
-      new Notice(`Mermaid save failed: ${error instanceof Error ? error.message : String(error)}`);
+      new Notice(this.t("editor.saveFailed", { error: error instanceof Error ? error.message : String(error) }));
       this.renderStatusBar();
       this.updateApplyButtonState();
     } finally {
@@ -2110,12 +2122,12 @@ export class MermaidEditorModal extends Modal {
 
   private applySourceDraft(renderAfter = true, afterApply?: () => void): boolean {
     const source = this.sourceDraft ?? this.codePreview?.value ?? this.currentSource();
-    const assessment = assessMermaidSourceDraft(source, this.diagram);
+    const assessment = assessMermaidSourceDraft(source, this.diagram, this.locale);
     if (assessment.warnings.length > 0) {
       new MermaidSourceApplyModal(this.app, assessment.warnings, () => {
         this.commitSourceDraft(assessment.diagram, renderAfter);
         afterApply?.();
-      }).open();
+      }, this.t).open();
       return false;
     }
 
@@ -2142,7 +2154,7 @@ export class MermaidEditorModal extends Modal {
   }
 
   private createChangeSummary(): string[] {
-    return createMermaidChangeSummary(this.savedSource, this.diagram);
+    return createMermaidChangeSummary(this.savedSource, this.diagram, this.locale);
   }
 
   private hasUnsavedChanges(): boolean {
@@ -2163,6 +2175,7 @@ export class MermaidEditorModal extends Modal {
       () => {
         this.discardPromptOpen = false;
       },
+      this.t,
     ).open();
   }
 
@@ -2755,14 +2768,14 @@ export class MermaidEditorModal extends Modal {
 
   private renderStageZoomControls(parent: HTMLElement): void {
     const toolbar = parent.createDiv({ cls: "owen-mermaid-editor-zoom-toolbar" });
-    this.createButton(toolbar, "zoom-out", "Zoom out", () => this.setEditorZoom(this.editorZoom - EDITOR_ZOOM_STEP));
+    this.createButton(toolbar, "zoom-out", this.t("zoom.out"), () => this.setEditorZoom(this.editorZoom - EDITOR_ZOOM_STEP));
     this.zoomLabel = toolbar.createSpan({ cls: "owen-mermaid-editor-zoom-label", text: "100%" });
-    this.createButton(toolbar, "zoom-in", "Zoom in", () => this.setEditorZoom(this.editorZoom + EDITOR_ZOOM_STEP));
-    this.createButton(toolbar, "rotate-ccw", "Reset zoom", () => this.setEditorZoom(1));
+    this.createButton(toolbar, "zoom-in", this.t("zoom.in"), () => this.setEditorZoom(this.editorZoom + EDITOR_ZOOM_STEP));
+    this.createButton(toolbar, "rotate-ccw", this.t("editor.resetZoom"), () => this.setEditorZoom(1));
   }
 
   private createModalResizeHandle(shell: HTMLElement): void {
-    const handle = shell.createEl("button", { cls: "owen-mermaid-window-resize-handle", attr: { type: "button", title: "Resize editor", "aria-label": "Resize editor" } });
+    const handle = shell.createEl("button", { cls: "owen-mermaid-window-resize-handle", attr: { type: "button", title: this.t("editor.resize"), "aria-label": this.t("editor.resize") } });
     setIcon(handle, "grip");
     handle.addEventListener("pointerdown", (event) => this.beginModalResize(event));
   }
@@ -2975,11 +2988,11 @@ export class MermaidEditorModal extends Modal {
 
   private renderStatusBar(): void {
     if (!this.statusBar) return;
-    const selected = this.selectedNodeIds.size > 1 ? `${this.selectedNodeIds.size} nodes` : this.editorSelection ? `${this.editorSelection.kind}` : "none";
-    const sourceState = this.isSaving ? "saving" : this.hasUnsavedChanges() ? "changed" : "saved";
-    const unsupported = this.diagram.unsupportedLines.length > 0 ? `, ${this.diagram.unsupportedLines.length} preserved` : "";
-    const tool = this.selectedShape ? ` | Tool ${this.selectedShape}` : this.selectedConnector ? ` | Tool ${this.selectedConnector.style}` : this.connectingFromNodeId ? " | connecting" : "";
-    this.statusBar.setText(`Zoom ${Math.round(this.editorZoom * 100)}% | Snap ${this.snapEnabled ? this.snapSize : "off"} | Selection ${selected} | ${sourceState}${unsupported}${tool}`);
+    const selected = this.selectedNodeIds.size > 1 ? this.t("editor.selectionNodes", { count: this.selectedNodeIds.size }) : this.editorSelection ? `${this.editorSelection.kind}` : this.t("editor.selectionNone");
+    const sourceState = this.isSaving ? this.t("editor.saving") : this.hasUnsavedChanges() ? this.t("editor.changed") : this.t("editor.saved");
+    const unsupported = this.diagram.unsupportedLines.length > 0 ? `, ${this.t("editor.preservedCount", { count: this.diagram.unsupportedLines.length })}` : "";
+    const tool = this.selectedShape ? ` | ${this.t("editor.toolStatus", { tool: this.selectedShape })}` : this.selectedConnector ? ` | ${this.t("editor.toolStatus", { tool: this.selectedConnector.style })}` : this.connectingFromNodeId ? ` | ${this.t("editor.connecting")}` : "";
+    this.statusBar.setText(`${this.t("editor.zoomStatus", { zoom: Math.round(this.editorZoom * 100) })} | ${this.t("editor.snapStatus", { snap: this.snapEnabled ? this.snapSize : "off" })} | ${this.t("editor.selectionStatus", { selection: selected })} | ${sourceState}${unsupported}${tool}`);
     this.updateToolStateClasses();
     this.updateApplyButtonState();
   }
@@ -2995,8 +3008,8 @@ export class MermaidEditorModal extends Modal {
     const hasChanges = this.hasUnsavedChanges();
     this.applyButton.disabled = this.isSaving || !hasChanges;
     this.applyButton.toggleClass("is-busy", this.isSaving);
-    this.applyButton.setAttribute("aria-label", this.isSaving ? "Applying" : "Apply");
-    this.applyButton.setAttribute("title", this.isSaving ? "Applying" : hasChanges ? "Apply" : "No changes to apply");
+    this.applyButton.setAttribute("aria-label", this.isSaving ? this.t("editor.applying") : this.t("common.apply"));
+    this.applyButton.setAttribute("title", this.isSaving ? this.t("editor.applying") : hasChanges ? this.t("common.apply") : this.t("editor.noChanges"));
   }
 
   private beginNodeDrag(node: DiagramNode, event: PointerEvent): void {
@@ -3541,6 +3554,7 @@ class MermaidDiscardChangesModal extends Modal {
     app: App,
     private readonly onDiscard: () => void,
     private readonly onKeepEditing: () => void,
+    private readonly t: Translator,
   ) {
     super(app);
   }
@@ -3549,12 +3563,12 @@ class MermaidDiscardChangesModal extends Modal {
     this.modalEl.addClass("owen-mermaid-confirm-modal");
     this.contentEl.empty();
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-confirm-shell" });
-    shell.createEl("h3", { text: "Discard Mermaid changes?" });
-    shell.createEl("p", { text: "Your visual editor changes have not been applied to the note." });
+    shell.createEl("h3", { text: this.t("editor.discardTitle") });
+    shell.createEl("p", { text: this.t("editor.discardDescription") });
 
     const actions = shell.createDiv({ cls: "owen-mermaid-confirm-actions" });
-    const keep = actions.createEl("button", { text: "Keep editing", attr: { type: "button" } });
-    const discard = actions.createEl("button", { cls: "is-danger", text: "Discard", attr: { type: "button" } });
+    const keep = actions.createEl("button", { text: this.t("editor.keepEditing"), attr: { type: "button" } });
+    const discard = actions.createEl("button", { cls: "is-danger", text: this.t("editor.discard"), attr: { type: "button" } });
 
     keep.addEventListener("click", () => this.finish(false));
     discard.addEventListener("click", () => this.finish(true));
@@ -3580,6 +3594,7 @@ class MermaidSourceApplyModal extends Modal {
     app: App,
     private readonly warnings: string[],
     private readonly onApply: () => void,
+    private readonly t: Translator,
   ) {
     super(app);
   }
@@ -3588,14 +3603,14 @@ class MermaidSourceApplyModal extends Modal {
     this.modalEl.addClass("owen-mermaid-confirm-modal");
     this.contentEl.empty();
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-confirm-shell" });
-    shell.createEl("h3", { text: "Apply Mermaid source?" });
-    shell.createEl("p", { text: "This source edit changes what the visual editor can parse." });
+    shell.createEl("h3", { text: this.t("editor.applySourceTitle") });
+    shell.createEl("p", { text: this.t("editor.applySourceDescription") });
     const list = shell.createEl("ul", { cls: "owen-mermaid-confirm-list" });
     for (const warning of this.warnings) list.createEl("li", { text: warning });
 
     const actions = shell.createDiv({ cls: "owen-mermaid-confirm-actions" });
-    const cancel = actions.createEl("button", { text: "Keep editing", attr: { type: "button" } });
-    const apply = actions.createEl("button", { text: "Apply source", attr: { type: "button" } });
+    const cancel = actions.createEl("button", { text: this.t("editor.keepEditing"), attr: { type: "button" } });
+    const apply = actions.createEl("button", { text: this.t("editor.applySource"), attr: { type: "button" } });
 
     cancel.addEventListener("click", () => this.close());
     apply.addEventListener("click", () => this.finish());
@@ -3615,6 +3630,7 @@ class MermaidActionPaletteModal extends Modal {
   constructor(
     app: App,
     private readonly actions: EditorAction[],
+    private readonly t: Translator,
   ) {
     super(app);
   }
@@ -3623,7 +3639,7 @@ class MermaidActionPaletteModal extends Modal {
     this.modalEl.addClass("owen-mermaid-action-palette-modal");
     this.contentEl.empty();
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-action-palette-shell" });
-    const input = shell.createEl("input", { cls: "owen-mermaid-action-palette-input", attr: { type: "text", placeholder: "Search actions" } });
+    const input = shell.createEl("input", { cls: "owen-mermaid-action-palette-input", attr: { type: "text", placeholder: this.t("editor.searchActions") } });
     const list = shell.createDiv({ cls: "owen-mermaid-action-palette-list" });
 
     const render = () => {
@@ -3664,6 +3680,7 @@ class MermaidTextEditModal extends Modal {
     private readonly initialValue: string,
     private readonly allowEmpty: boolean,
     private readonly onSubmit: (value: string) => void,
+    private readonly t: Translator,
   ) {
     super(app);
   }
@@ -3679,13 +3696,13 @@ class MermaidTextEditModal extends Modal {
     const input = field.createEl("input", { value: this.initialValue, attr: { type: "text" } });
 
     const actions = shell.createDiv({ cls: "owen-mermaid-text-edit-actions" });
-    const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
-    const apply = actions.createEl("button", { text: "Apply", attr: { type: "button" } });
+    const cancel = actions.createEl("button", { text: this.t("common.cancel"), attr: { type: "button" } });
+    const apply = actions.createEl("button", { text: this.t("common.apply"), attr: { type: "button" } });
 
     const submit = () => {
       const value = input.value.trim();
       if (!this.allowEmpty && !value) {
-        new Notice("Text cannot be empty.");
+        new Notice(this.t("editor.textEmpty"));
         return;
       }
       this.onSubmit(value);

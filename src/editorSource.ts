@@ -1,4 +1,5 @@
 import { generateFlowchart, parseFlowchart } from "./flowchart";
+import { createTranslator, type Locale } from "./i18n";
 import type { FlowDiagram } from "./types";
 
 export type DiffLineKind = "added" | "removed";
@@ -18,13 +19,14 @@ export interface SourceDiagnostic {
   message: string;
 }
 
-export function assessSourceDraft(source: string, currentDiagram: FlowDiagram): SourceDraftAssessment {
+export function assessSourceDraft(source: string, currentDiagram: FlowDiagram, locale: Locale = "en"): SourceDraftAssessment {
+  const t = createTranslator(locale);
   const nextDiagram = parseFlowchart(source, currentDiagram.direction);
   const warnings: string[] = [];
-  if (nextDiagram.syntax !== currentDiagram.syntax) warnings.push(`Syntax changes from ${currentDiagram.syntax} to ${nextDiagram.syntax}.`);
-  if (currentDiagram.nodes.length > 0 && nextDiagram.nodes.length < currentDiagram.nodes.length) warnings.push(`Visual nodes decrease from ${currentDiagram.nodes.length} to ${nextDiagram.nodes.length}.`);
-  if (currentDiagram.edges.length > 0 && nextDiagram.edges.length < currentDiagram.edges.length) warnings.push(`Connectors decrease from ${currentDiagram.edges.length} to ${nextDiagram.edges.length}.`);
-  if (nextDiagram.unsupportedLines.length > currentDiagram.unsupportedLines.length) warnings.push(`${nextDiagram.unsupportedLines.length} line(s) will be preserved but not visually editable.`);
+  if (nextDiagram.syntax !== currentDiagram.syntax) warnings.push(t("source.syntaxChange", { from: currentDiagram.syntax, to: nextDiagram.syntax }));
+  if (currentDiagram.nodes.length > 0 && nextDiagram.nodes.length < currentDiagram.nodes.length) warnings.push(t("source.nodesDecrease", { from: currentDiagram.nodes.length, to: nextDiagram.nodes.length }));
+  if (currentDiagram.edges.length > 0 && nextDiagram.edges.length < currentDiagram.edges.length) warnings.push(t("source.connectorsDecrease", { from: currentDiagram.edges.length, to: nextDiagram.edges.length }));
+  if (nextDiagram.unsupportedLines.length > currentDiagram.unsupportedLines.length) warnings.push(t("source.preservedLines", { count: nextDiagram.unsupportedLines.length }));
   return { diagram: nextDiagram, warnings };
 }
 
@@ -49,7 +51,8 @@ export function createSourceDiffLines(previousSource: string, nextSource: string
   return lines;
 }
 
-export function createChangeSummary(previousSource: string, diagram: FlowDiagram): string[] {
+export function createChangeSummary(previousSource: string, diagram: FlowDiagram, locale: Locale = "en"): string[] {
+  const t = createTranslator(locale);
   const previous = parseFlowchart(previousSource, diagram.direction);
   const items: string[] = [];
   let nodeTextChanges = 0;
@@ -75,21 +78,22 @@ export function createChangeSummary(previousSource: string, diagram: FlowDiagram
     if (!before || before.from !== edge.from || before.to !== edge.to || before.label !== edge.label || before.style !== edge.style || edge.route !== before.route || before.strokeColor !== edge.strokeColor || before.textColor !== edge.textColor || before.strokeWidth !== edge.strokeWidth || before.textSize !== edge.textSize) connectorChanges += 1;
   }
 
-  if (nodeTextChanges > 0) items.push(`${nodeTextChanges} node text or shape change(s)`);
-  if (nodeStyleChanges > 0) items.push(`${nodeStyleChanges} node style change(s)`);
-  if (connectorChanges > 0) items.push(`${connectorChanges} connector change(s)`);
-  if (layoutChanges > 0) items.push(`${layoutChanges} editor layout change(s)`);
-  if (previous.freeLines.length !== diagram.freeLines.length) items.push("Free line count changed");
+  if (nodeTextChanges > 0) items.push(t("source.nodeTextChanges", { count: nodeTextChanges }));
+  if (nodeStyleChanges > 0) items.push(t("source.nodeStyleChanges", { count: nodeStyleChanges }));
+  if (connectorChanges > 0) items.push(t("source.connectorChanges", { count: connectorChanges }));
+  if (layoutChanges > 0) items.push(t("source.layoutChanges", { count: layoutChanges }));
+  if (previous.freeLines.length !== diagram.freeLines.length) items.push(t("source.freeLineCountChanged"));
   return items;
 }
 
-export function createSourceDiagnostics(source: string, currentDiagram: FlowDiagram): SourceDiagnostic[] {
+export function createSourceDiagnostics(source: string, currentDiagram: FlowDiagram, locale: Locale = "en"): SourceDiagnostic[] {
+  const t = createTranslator(locale);
   const nextDiagram = parseFlowchart(source, currentDiagram.direction);
   const diagnostics: SourceDiagnostic[] = [];
-  diagnostics.push({ severity: "info", message: `${nextDiagram.syntax}: ${nextDiagram.nodes.length} node(s), ${nextDiagram.edges.length} connector(s).` });
-  if (nextDiagram.unsupportedLines.length > 0) diagnostics.push({ severity: "warning", message: `${nextDiagram.unsupportedLines.length} preserved line(s) are not visually editable.` });
-  if (nextDiagram.syntax !== currentDiagram.syntax) diagnostics.push({ severity: "warning", message: `Applying changes switches syntax from ${currentDiagram.syntax} to ${nextDiagram.syntax}.` });
-  if (currentDiagram.nodes.length > 0 && nextDiagram.nodes.length === 0) diagnostics.push({ severity: "warning", message: "No visual nodes were parsed from this source." });
+  diagnostics.push({ severity: "info", message: t("source.diagnosticSummary", { syntax: nextDiagram.syntax, nodes: nextDiagram.nodes.length, connectors: nextDiagram.edges.length }) });
+  if (nextDiagram.unsupportedLines.length > 0) diagnostics.push({ severity: "warning", message: t("source.diagnosticPreserved", { count: nextDiagram.unsupportedLines.length }) });
+  if (nextDiagram.syntax !== currentDiagram.syntax) diagnostics.push({ severity: "warning", message: t("source.diagnosticSyntax", { from: currentDiagram.syntax, to: nextDiagram.syntax }) });
+  if (currentDiagram.nodes.length > 0 && nextDiagram.nodes.length === 0) diagnostics.push({ severity: "warning", message: t("source.diagnosticNoNodes") });
   return diagnostics;
 }
 

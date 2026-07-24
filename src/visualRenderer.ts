@@ -21,7 +21,7 @@ export function hasOwenMermaidLayout(source: string): boolean {
   return LAYOUT_META_PATTERN.test(source);
 }
 
-export function renderVisualDiagram(source: string, document: Document, fallbackDirection: FlowDirection): SVGSVGElement | null {
+export function renderVisualDiagram(source: string, document: Document, fallbackDirection: FlowDirection, ariaLabel = "Owen Mermaid diagram"): SVGSVGElement | null {
   if (!hasOwenMermaidLayout(source)) return null;
   const diagram = parseFlowchart(source, fallbackDirection);
   const bounds = getCanvasBounds(diagram);
@@ -31,7 +31,7 @@ export function renderVisualDiagram(source: string, document: Document, fallback
     width: String(Math.round(bounds.width)),
     height: String(Math.round(bounds.height)),
     role: "img",
-    "aria-label": "Owen Mermaid diagram",
+    "aria-label": ariaLabel,
   }) as SVGSVGElement;
   renderId += 1;
   if (diagram.syntax === "sequenceDiagram") renderSequenceDiagram(svg, diagram, renderId);

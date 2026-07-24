@@ -2,6 +2,9 @@
 
 # Owen Mermaid
 
+> [!NOTE]
+> **Language:** Owen Mermaid follows Obsidian by default: Korean uses Korean, while every other locale uses English. Override it from **Settings → Owen Mermaid → Interface → Language**.
+
 Owen Mermaid is an Obsidian plugin for viewing and editing Mermaid SVG images inside your notes.
 
 - Detects Mermaid SVG diagrams and adds an inline glass toolbar.
