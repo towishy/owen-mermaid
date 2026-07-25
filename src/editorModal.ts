@@ -23,8 +23,6 @@ const SEQUENCE_TOP_Y = 82;
 const SEQUENCE_MESSAGE_START_Y = 176;
 const SEQUENCE_MESSAGE_GAP = 62;
 const SEQUENCE_BOTTOM_PADDING = 96;
-const MINIMAP_WIDTH = 168;
-const MINIMAP_HEIGHT = 112;
 const SMART_GUIDE_THRESHOLD = 7;
 const COPY_OFFSET = 34;
 
@@ -130,6 +128,14 @@ interface ModalResizeState {
   startHeight: number;
 }
 
+interface StagePanState {
+  startPointerX: number;
+  startPointerY: number;
+  startScrollLeft: number;
+  startScrollTop: number;
+  moved: boolean;
+}
+
 export class MermaidEditorModal extends Modal {
   private readonly t: Translator;
   private diagram: FlowDiagram;
@@ -140,12 +146,13 @@ export class MermaidEditorModal extends Modal {
   private ribbon?: HTMLElement;
   private ribbonContextKey = "";
   private zoomLabel?: HTMLElement;
-  private minimap?: SVGSVGElement;
   private statusBar?: HTMLElement;
   private inspector?: HTMLElement;
   private codePreview?: HTMLTextAreaElement;
   private diffPreview?: HTMLElement;
   private applyButton?: HTMLButtonElement;
+  private applyButtonLabel?: HTMLSpanElement;
+  private inspectorToggleButton?: HTMLButtonElement;
   private draggingNodeId?: string;
   private dragOffset = { x: 0, y: 0 };
   private connectingFromNodeId?: string;
@@ -165,12 +172,13 @@ export class MermaidEditorModal extends Modal {
   private removeLabelDragListeners?: () => void;
   private removeWaypointDragListeners?: () => void;
   private removeModalResizeListeners?: () => void;
-  private removeMinimapListeners?: () => void;
+  private removeStagePanListeners?: () => void;
   private resizeState?: ResizeState;
   private reconnectState?: ReconnectState;
   private labelDragState?: LabelDragState;
   private waypointDragState?: WaypointDragState;
   private modalResizeState?: ModalResizeState;
+  private stagePanState?: StagePanState;
   private suppressNextCanvasClick = false;
   private suppressNextPaletteClick = false;
   private suppressClosePrompt = false;
@@ -185,6 +193,7 @@ export class MermaidEditorModal extends Modal {
   private snapSize = DEFAULT_SNAP_SIZE;
   private editorZoom = 1;
   private inspectorTab: InspectorTab = "inspect";
+  private inspectorVisible = true;
   private copiedSelection?: EditorClipboard;
   private smartGuides: SmartGuide[] = [];
   private colorTarget: ColorTarget = "nodeFill";
@@ -333,9 +342,14 @@ export class MermaidEditorModal extends Modal {
     const actions = header.createDiv({ cls: "owen-mermaid-editor-actions" });
     this.createButton(actions, "undo-2", this.t("editor.undo"), () => this.undoHistory());
     this.createButton(actions, "redo-2", this.t("editor.redo"), () => this.redoHistory());
-    this.createButton(actions, "rotate-ccw", this.t("editor.autoLayout"), () => this.autoLayout());
+    this.createButton(actions, "rotate-ccw", this.t("editor.autoLayout"), () => this.autoLayout()).addClass("owen-mermaid-header-auto-layout");
     this.createButton(actions, "command", this.t("editor.actions"), () => this.openActionPalette());
+    this.inspectorToggleButton = this.createButton(actions, "panel-right-close", this.t("editor.hideInspector"), () => this.setInspectorVisible(!this.inspectorVisible));
+    this.inspectorToggleButton.addClass("owen-mermaid-inspector-toggle");
+    this.setInspectorVisible(this.inspectorVisible);
     this.applyButton = this.createButton(actions, "save", this.t("common.apply"), () => void this.save());
+    this.applyButton.addClass("owen-mermaid-primary-action");
+    this.applyButtonLabel = this.applyButton.createSpan({ cls: "owen-mermaid-primary-action-label", text: this.t("common.apply") });
     this.createButton(actions, "x", this.t("common.close"), () => this.close());
 
     this.ribbon = shell.createDiv({ cls: "owen-mermaid-editor-ribbon" });
@@ -343,14 +357,10 @@ export class MermaidEditorModal extends Modal {
 
     const body = shell.createDiv({ cls: "owen-mermaid-editor-body" });
     this.stage = body.createDiv({ cls: "owen-mermaid-editor-stage" });
-    this.stage.addEventListener("scroll", () => this.renderMinimap());
     this.stage.addEventListener("wheel", (event) => this.handleStageWheel(event), { passive: false });
-    const navPanel = body.createDiv({ cls: "owen-mermaid-editor-nav-panel owen-mermaid-glass-toolbar" });
-    this.renderStageZoomControls(navPanel);
+    this.stage.addEventListener("pointerdown", (event) => this.beginStagePan(event));
     this.canvas = this.stage.createSvg("svg", { cls: "owen-mermaid-canvas" });
     this.bindCanvas(this.canvas);
-    this.minimap = navPanel.createSvg("svg", { cls: "owen-mermaid-minimap", attr: { width: String(MINIMAP_WIDTH), height: String(MINIMAP_HEIGHT), viewBox: `0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}` } });
-    this.minimap.addEventListener("pointerdown", (event) => this.handleMinimapPointer(event));
 
     this.inspector = body.createDiv({ cls: "owen-mermaid-inspector" });
     this.statusBar = shell.createDiv({ cls: "owen-mermaid-editor-status" });
@@ -375,11 +385,13 @@ export class MermaidEditorModal extends Modal {
     this.endLabelDrag();
     this.endWaypointDrag();
     this.endModalResize();
-    this.endMinimapDrag();
+    this.endStagePan();
     this.cancelScheduledCanvasRefresh();
     this.ribbon = undefined;
     this.ribbonContextKey = "";
     this.applyButton = undefined;
+    this.applyButtonLabel = undefined;
+    this.inspectorToggleButton = undefined;
     this.modalEl.removeEventListener("keydown", this.handleEditorKeydown);
     this.modalEl.removeEventListener("keyup", this.handleEditorKeyup);
     this.contentEl.empty();
@@ -637,6 +649,10 @@ export class MermaidEditorModal extends Modal {
     const viewGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
     viewGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.view") });
     const viewButtons = viewGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
+    this.createRibbonButton(viewButtons, "zoom-out", this.t("zoom.out"), () => this.setEditorZoom(this.editorZoom - EDITOR_ZOOM_STEP));
+    this.zoomLabel = viewButtons.createSpan({ cls: "owen-mermaid-ribbon-zoom-label", text: `${Math.round(this.editorZoom * 100)}%` });
+    this.createRibbonButton(viewButtons, "zoom-in", this.t("zoom.in"), () => this.setEditorZoom(this.editorZoom + EDITOR_ZOOM_STEP));
+    this.createRibbonButton(viewButtons, "rotate-ccw", this.t("editor.resetZoom"), () => this.setEditorZoom(1));
     this.createRibbonButton(viewButtons, "scan", this.t("editor.fit"), () => this.fitDiagramToStage());
     this.createRibbonButton(viewButtons, "locate-fixed", this.t("editor.center"), () => this.centerSelectionInStage());
     const snapToggle = viewButtons.createEl("button", { cls: "owen-mermaid-palette-item", attr: { type: "button", title: this.t("editor.toggleSnap"), "aria-label": this.t("editor.toggleSnap"), "aria-pressed": this.snapEnabled ? "true" : "false" } });
@@ -949,11 +965,68 @@ export class MermaidEditorModal extends Modal {
     });
   }
 
+  private beginStagePan(event: PointerEvent): void {
+    const stage = this.stage;
+    if (!stage || event.button !== 0 || (event.target !== stage && event.target !== this.canvas)) return;
+    if (this.selectedShape || this.selectedConnector || this.connectingFromNodeId || this.placement || this.freeLineDraft) return;
+
+    this.endStagePan();
+    this.stagePanState = {
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startScrollLeft: stage.scrollLeft,
+      startScrollTop: stage.scrollTop,
+      moved: false,
+    };
+    stage.addClass("is-panning");
+
+    const win = this.containerEl.ownerDocument.defaultView ?? window;
+    const move = (moveEvent: PointerEvent) => this.updateStagePan(moveEvent);
+    const up = () => this.endStagePan();
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up, { once: true });
+    win.addEventListener("pointercancel", up, { once: true });
+    this.removeStagePanListeners = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("pointercancel", up);
+    };
+  }
+
+  private updateStagePan(event: PointerEvent): void {
+    const stage = this.stage;
+    const state = this.stagePanState;
+    if (!stage || !state) return;
+    const deltaX = event.clientX - state.startPointerX;
+    const deltaY = event.clientY - state.startPointerY;
+    if (!state.moved && Math.hypot(deltaX, deltaY) >= 3) {
+      state.moved = true;
+      this.suppressNextCanvasClick = true;
+    }
+    if (!state.moved) return;
+    event.preventDefault();
+    stage.scrollLeft = state.startScrollLeft - deltaX;
+    stage.scrollTop = state.startScrollTop - deltaY;
+  }
+
+  private endStagePan(): void {
+    const moved = this.stagePanState?.moved ?? false;
+    this.removeStagePanListeners?.();
+    this.removeStagePanListeners = undefined;
+    this.stagePanState = undefined;
+    this.stage?.removeClass("is-panning");
+    if (moved) {
+      const win = this.containerEl.ownerDocument.defaultView ?? window;
+      win.requestAnimationFrame(() => {
+        this.suppressNextCanvasClick = false;
+      });
+    }
+  }
+
   private render(): void {
     this.renderRibbon();
     this.renderCanvas();
     this.renderInspector();
-    this.renderMinimap();
     this.renderStatusBar();
     this.updateApplyButtonState();
     this.updateCodePreview();
@@ -966,7 +1039,6 @@ export class MermaidEditorModal extends Modal {
     this.canvas.empty();
     if (this.diagram.syntax === "sequenceDiagram") {
       this.renderSequenceCanvas();
-      this.renderMinimap();
       this.renderStatusBar();
       return;
     }
@@ -985,7 +1057,6 @@ export class MermaidEditorModal extends Modal {
     for (const node of this.diagram.nodes) this.renderNode(nodes, node);
     this.renderShapePreview(nodes);
     this.renderSubgraphHints();
-    this.renderMinimap();
     this.renderStatusBar();
   }
 
@@ -1368,57 +1439,96 @@ export class MermaidEditorModal extends Modal {
 
   private renderInspector(): void {
     if (!this.inspector) return;
+    this.inspector.parentElement?.setAttribute("data-inspector-tab", this.inspectorTab);
     this.inspector.empty();
     this.inspector.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.inspector") });
     this.renderInspectorTabs(this.inspector);
-    this.renderRenderSummary(this.inspector);
+    const panel = this.inspector.createDiv({
+      cls: "owen-mermaid-inspector-panel",
+      attr: {
+        id: "owen-mermaid-inspector-panel",
+        role: "tabpanel",
+        "aria-labelledby": `owen-mermaid-inspector-tab-${this.inspectorTab}`,
+        tabindex: "0",
+      },
+    });
+    this.renderRenderSummary(panel);
 
     if (this.inspectorTab === "source") {
-      this.renderUnsupportedSummary(this.inspector);
-      this.renderCodePreview(this.inspector);
+      this.renderUnsupportedSummary(panel);
+      this.renderCodePreview(panel);
       return;
     }
 
     if (this.inspectorTab === "changes") {
-      this.renderChangeSummary(this.inspector);
-      this.renderSourceDiff(this.inspector);
+      this.renderChangeSummary(panel);
+      this.renderSourceDiff(panel);
       return;
     }
 
     if (!this.editorSelection) {
-      this.renderConnectControls(this.inspector);
-      this.inspector.createEl("p", { cls: "owen-mermaid-empty-state", text: this.t("editor.selectItem") });
+      this.renderConnectControls(panel);
+      panel.createEl("p", { cls: "owen-mermaid-empty-state", text: this.t("editor.selectItem") });
       return;
     }
 
     if (this.editorSelection.kind === "node") {
       const node = this.diagram.nodes.find((item) => item.id === this.editorSelection?.id);
-      if (this.selectedNodeIds.size > 1) this.renderMultiNodeInspector(this.inspector);
-      else if (node) this.renderNodeInspector(this.inspector, node);
+      if (this.selectedNodeIds.size > 1) this.renderMultiNodeInspector(panel);
+      else if (node) this.renderNodeInspector(panel, node);
     } else if (this.editorSelection.kind === "freeLine") {
       const line = this.diagram.freeLines.find((item) => item.id === this.editorSelection?.id);
-      if (line) this.renderFreeLineInspector(this.inspector, line);
+      if (line) this.renderFreeLineInspector(panel, line);
     } else {
       const edge = this.diagram.edges.find((item) => item.id === this.editorSelection?.id);
-      if (edge) this.renderEdgeInspector(this.inspector, edge);
+      if (edge) this.renderEdgeInspector(panel, edge);
     }
 
   }
 
   private renderInspectorTabs(parent: HTMLElement): void {
-    const tabs = parent.createDiv({ cls: "owen-mermaid-inspector-tabs" });
-    for (const tab of [
+    const tabs = parent.createDiv({ cls: "owen-mermaid-inspector-tabs", attr: { role: "tablist" } });
+    const definitions = [
       { value: "inspect", label: this.t("editor.inspect") },
       { value: "source", label: this.t("editor.source") },
       { value: "changes", label: this.t("editor.changes") },
-    ] as Array<{ value: InspectorTab; label: string }>) {
-      const button = tabs.createEl("button", { cls: "owen-mermaid-inspector-tab", text: tab.label, attr: { type: "button", "aria-pressed": this.inspectorTab === tab.value ? "true" : "false" } });
-      button.toggleClass("is-active", this.inspectorTab === tab.value);
-      button.addEventListener("click", () => {
-        this.inspectorTab = tab.value;
-        this.renderInspector();
+    ] as Array<{ value: InspectorTab; label: string }>;
+    const activateTab = (tab: InspectorTab, focus: boolean): void => {
+      this.inspectorTab = tab;
+      this.renderInspector();
+      if (!focus) return;
+      const win = this.containerEl.ownerDocument.defaultView ?? window;
+      win.requestAnimationFrame(() => this.inspector?.querySelector<HTMLButtonElement>(`[data-inspector-tab-value="${tab}"]`)?.focus());
+    };
+
+    definitions.forEach((tab, index) => {
+      const selected = this.inspectorTab === tab.value;
+      const button = tabs.createEl("button", {
+        cls: "owen-mermaid-inspector-tab",
+        text: tab.label,
+        attr: {
+          id: `owen-mermaid-inspector-tab-${tab.value}`,
+          type: "button",
+          role: "tab",
+          "aria-controls": "owen-mermaid-inspector-panel",
+          "aria-selected": selected ? "true" : "false",
+          "data-inspector-tab-value": tab.value,
+          tabindex: selected ? "0" : "-1",
+        },
       });
-    }
+      button.toggleClass("is-active", this.inspectorTab === tab.value);
+      button.addEventListener("click", () => activateTab(tab.value, true));
+      button.addEventListener("keydown", (event) => {
+        let nextIndex = index;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % definitions.length;
+        else if (event.key === "ArrowLeft") nextIndex = (index - 1 + definitions.length) % definitions.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = definitions.length - 1;
+        else return;
+        event.preventDefault();
+        activateTab(definitions[nextIndex].value, true);
+      });
+    });
   }
 
   private renderRenderSummary(parent: HTMLElement): void {
@@ -1506,7 +1616,7 @@ export class MermaidEditorModal extends Modal {
       this.updateCodePreview();
     }, true);
 
-    const shape = parent.createEl("select", { cls: "owen-mermaid-select" });
+    const shape = parent.createEl("select", { cls: "owen-mermaid-select owen-mermaid-shape-select" });
     for (const item of this.shapeTools()) shape.createEl("option", { text: item.label, value: item.shape });
     shape.value = node.shape;
     shape.addEventListener("change", () => {
@@ -1787,9 +1897,20 @@ export class MermaidEditorModal extends Modal {
       { label: this.t("editor.copySelection"), keywords: "copy duplicate", run: () => this.copySelection() },
       { label: this.t("editor.pasteSelection"), keywords: "paste duplicate", run: () => this.pasteSelection() },
       { label: this.t("editor.selectAllNodes"), keywords: "select all", run: () => this.selectAllNodes() },
-      { label: this.t("editor.editSource"), keywords: "source mermaid code", run: () => { this.inspectorTab = "source"; this.sourceEditing = true; this.sourceDraft = this.currentSource(); this.renderInspector(); } },
-      { label: this.t("editor.showChanges"), keywords: "diff changes summary", run: () => { this.inspectorTab = "changes"; this.renderInspector(); } },
+      { label: this.t("editor.editSource"), keywords: "source mermaid code", run: () => { this.setInspectorVisible(true); this.inspectorTab = "source"; this.sourceEditing = true; this.sourceDraft = this.currentSource(); this.renderInspector(); } },
+      { label: this.t("editor.showChanges"), keywords: "diff changes summary", run: () => { this.setInspectorVisible(true); this.inspectorTab = "changes"; this.renderInspector(); } },
     ];
+  }
+
+  private setInspectorVisible(visible: boolean): void {
+    this.inspectorVisible = visible;
+    this.modalEl.toggleClass("is-inspector-collapsed", !visible);
+    if (!this.inspectorToggleButton) return;
+    const label = this.t(visible ? "editor.hideInspector" : "editor.showInspector");
+    setIcon(this.inspectorToggleButton, visible ? "panel-right-close" : "panel-right-open");
+    this.inspectorToggleButton.setAttribute("aria-label", label);
+    this.inspectorToggleButton.setAttribute("title", label);
+    this.inspectorToggleButton.setAttribute("aria-expanded", visible ? "true" : "false");
   }
 
   private createButton(parent: HTMLElement, icon: string, label: string, onClick: () => void): HTMLButtonElement {
@@ -2060,7 +2181,6 @@ export class MermaidEditorModal extends Modal {
     this.stage.scrollLeft = 0;
     this.stage.scrollTop = 0;
     this.renderStatusBar();
-    this.renderMinimap();
   }
 
   private centerSelectionInStage(): void {
@@ -2079,7 +2199,6 @@ export class MermaidEditorModal extends Modal {
     const bounds = this.getCanvasBounds();
     this.stage.scrollLeft = Math.max(0, (point.x - bounds.minX) * this.editorZoom - this.stage.clientWidth / 2);
     this.stage.scrollTop = Math.max(0, (point.y - bounds.minY) * this.editorZoom - this.stage.clientHeight / 2);
-    this.renderMinimap();
   }
 
   private getNodeBounds(nodes: DiagramNode[]): { minX: number; minY: number; maxX: number; maxY: number; centerX: number; centerY: number; width: number; height: number } {
@@ -2766,14 +2885,6 @@ export class MermaidEditorModal extends Modal {
     this.render();
   }
 
-  private renderStageZoomControls(parent: HTMLElement): void {
-    const toolbar = parent.createDiv({ cls: "owen-mermaid-editor-zoom-toolbar" });
-    this.createButton(toolbar, "zoom-out", this.t("zoom.out"), () => this.setEditorZoom(this.editorZoom - EDITOR_ZOOM_STEP));
-    this.zoomLabel = toolbar.createSpan({ cls: "owen-mermaid-editor-zoom-label", text: "100%" });
-    this.createButton(toolbar, "zoom-in", this.t("zoom.in"), () => this.setEditorZoom(this.editorZoom + EDITOR_ZOOM_STEP));
-    this.createButton(toolbar, "rotate-ccw", this.t("editor.resetZoom"), () => this.setEditorZoom(1));
-  }
-
   private createModalResizeHandle(shell: HTMLElement): void {
     const handle = shell.createEl("button", { cls: "owen-mermaid-window-resize-handle", attr: { type: "button", title: this.t("editor.resize"), "aria-label": this.t("editor.resize") } });
     setIcon(handle, "grip");
@@ -2824,7 +2935,6 @@ export class MermaidEditorModal extends Modal {
     this.modalEl.style.height = `${Math.round(height)}px`;
     this.modalEl.style.maxWidth = `${maxWidth}px`;
     this.modalEl.style.maxHeight = `${maxHeight}px`;
-    this.renderMinimap();
   }
 
   private endModalResize(): void {
@@ -2850,7 +2960,6 @@ export class MermaidEditorModal extends Modal {
       stage.scrollLeft = Math.max(0, centerX * next - stage.clientWidth / 2);
       stage.scrollTop = Math.max(0, centerY * next - stage.clientHeight / 2);
     }
-    this.renderMinimap();
     this.renderStatusBar();
   }
 
@@ -2866,7 +2975,6 @@ export class MermaidEditorModal extends Modal {
     if (event.shiftKey) {
       event.preventDefault();
       this.stage.scrollLeft += event.deltaY;
-      this.renderMinimap();
     }
   }
 
@@ -2917,75 +3025,6 @@ export class MermaidEditorModal extends Modal {
     return SEQUENCE_MESSAGE_START_Y + Math.max(1, this.diagram.edges.length) * SEQUENCE_MESSAGE_GAP + SEQUENCE_BOTTOM_PADDING;
   }
 
-  private renderMinimap(): void {
-    if (!this.minimap || !this.stage) return;
-    const bounds = this.getCanvasBounds();
-    const scale = Math.min((MINIMAP_WIDTH - 16) / bounds.width, (MINIMAP_HEIGHT - 16) / bounds.height);
-    const offsetX = (MINIMAP_WIDTH - bounds.width * scale) / 2;
-    const offsetY = (MINIMAP_HEIGHT - bounds.height * scale) / 2;
-    const mapX = (x: number) => offsetX + (x - bounds.minX) * scale;
-    const mapY = (y: number) => offsetY + (y - bounds.minY) * scale;
-    this.minimap.empty();
-    this.minimap.createSvg("rect", { cls: "owen-mermaid-minimap-bg", attr: { x: "0", y: "0", width: String(MINIMAP_WIDTH), height: String(MINIMAP_HEIGHT), rx: "8" } });
-    for (const line of this.diagram.freeLines) {
-      this.minimap.createSvg("line", { cls: "owen-mermaid-minimap-line", attr: { x1: String(mapX(line.x1)), y1: String(mapY(line.y1)), x2: String(mapX(line.x2)), y2: String(mapY(line.y2)), ...this.strokeStyleAttrs(line.strokeColor, line.strokeWidth) } });
-    }
-    for (const node of this.diagram.nodes) {
-      const rect = this.minimap.createSvg("rect", {
-        cls: "owen-mermaid-minimap-node",
-        attr: { x: String(mapX(node.x - node.width / 2)), y: String(mapY(node.y - node.height / 2)), width: String(Math.max(3, node.width * scale)), height: String(Math.max(3, node.height * scale)), rx: "2", ...this.nodeStyleAttrs(node) },
-      });
-      if (this.isNodeSelected(node.id)) rect.addClass("is-selected");
-    }
-    const viewX = bounds.minX + this.stage.scrollLeft / this.editorZoom;
-    const viewY = bounds.minY + this.stage.scrollTop / this.editorZoom;
-    this.minimap.createSvg("rect", {
-      cls: "owen-mermaid-minimap-view",
-      attr: { x: String(mapX(viewX)), y: String(mapY(viewY)), width: String((this.stage.clientWidth / this.editorZoom) * scale), height: String((this.stage.clientHeight / this.editorZoom) * scale), rx: "3" },
-    });
-  }
-
-  private handleMinimapPointer(event: PointerEvent): void {
-    if (!this.minimap || event.button !== 0) return;
-    event.preventDefault();
-    this.endMinimapDrag();
-    this.minimap.addClass("is-dragging");
-    this.centerMinimapAtEvent(event);
-
-    const win = this.containerEl.ownerDocument.defaultView ?? window;
-    const move = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault();
-      this.centerMinimapAtEvent(moveEvent);
-    };
-    const up = () => this.endMinimapDrag();
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", up, { once: true });
-    win.addEventListener("pointercancel", up, { once: true });
-    this.removeMinimapListeners = () => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", up);
-      win.removeEventListener("pointercancel", up);
-    };
-  }
-
-  private centerMinimapAtEvent(event: PointerEvent): void {
-    if (!this.minimap) return;
-    const bounds = this.getCanvasBounds();
-    const scale = Math.min((MINIMAP_WIDTH - 16) / bounds.width, (MINIMAP_HEIGHT - 16) / bounds.height);
-    const offsetX = (MINIMAP_WIDTH - bounds.width * scale) / 2;
-    const offsetY = (MINIMAP_HEIGHT - bounds.height * scale) / 2;
-    const rect = this.minimap.getBoundingClientRect();
-    const x = bounds.minX + (event.clientX - rect.left - offsetX) / scale;
-    const y = bounds.minY + (event.clientY - rect.top - offsetY) / scale;
-    this.centerStageOnCanvasPoint({ x, y });
-  }
-
-  private endMinimapDrag(): void {
-    this.removeMinimapListeners?.();
-    this.removeMinimapListeners = undefined;
-    this.minimap?.removeClass("is-dragging");
-  }
-
   private renderStatusBar(): void {
     if (!this.statusBar) return;
     const selected = this.selectedNodeIds.size > 1 ? this.t("editor.selectionNodes", { count: this.selectedNodeIds.size }) : this.editorSelection ? `${this.editorSelection.kind}` : this.t("editor.selectionNone");
@@ -3006,6 +3045,7 @@ export class MermaidEditorModal extends Modal {
   private updateApplyButtonState(): void {
     if (!this.applyButton) return;
     const hasChanges = this.hasUnsavedChanges();
+    this.applyButtonLabel?.setText(this.isSaving ? this.t("editor.applying") : this.t("common.apply"));
     this.applyButton.disabled = this.isSaving || !hasChanges;
     this.applyButton.toggleClass("is-busy", this.isSaving);
     this.applyButton.setAttribute("aria-label", this.isSaving ? this.t("editor.applying") : this.t("common.apply"));

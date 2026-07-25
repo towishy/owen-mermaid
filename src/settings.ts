@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { createTranslator, normalizeLocalePreference, type LocalePreference } from "./i18n";
 import type OwenMermaidPlugin from "./main";
 import { normalizeFilenameTemplateSetting, normalizeImageBackgroundSetting, normalizeOutputFolderSetting } from "./settingsValidation";
@@ -48,13 +48,14 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("owen-mermaid-settings");
 
-    this.addSectionHeader(
+    const interfaceSection = this.addSection(
       containerEl,
       t("settings.interface.section"),
       t("settings.interface.sectionDesc"),
+      "languages",
     );
 
-    new Setting(containerEl)
+    new Setting(interfaceSection)
       .setName(t("settings.language.name"))
       .setDesc(t("settings.language.desc"))
       .addDropdown((dropdown) =>
@@ -69,13 +70,14 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           }),
       );
 
-    this.addSectionHeader(
+    const exportSection = this.addSection(
       containerEl,
       t("settings.export.section"),
       t("settings.export.sectionDesc"),
+      "image-down",
     );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.format.name"))
       .setDesc(t("settings.format.desc"))
       .addDropdown((dropdown) =>
@@ -86,10 +88,11 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.exportFormat = value as ExportFormat;
             await this.plugin.saveSettings();
+            this.display();
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.location.name"))
       .setDesc(t("settings.location.desc"))
       .addDropdown((dropdown) =>
@@ -100,23 +103,26 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.saveLocation = value as ImageSaveLocation;
             await this.plugin.saveSettings();
+            this.display();
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.folder.name"))
       .setDesc(t("settings.folder.desc"))
       .addText((text) =>
         text
+          .setDisabled(this.plugin.settings.saveLocation !== "vault")
           .setPlaceholder("exports/images")
           .setValue(this.plugin.settings.outputFolder)
+          .then((component) => component.inputEl.addClass("owen-mermaid-settings-text-wide"))
           .onChange(async (value) => {
             this.plugin.settings.outputFolder = normalizeOutputFolderSetting(value, DEFAULT_SETTINGS.outputFolder);
             await this.plugin.saveSettings();
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.report.name"))
       .setDesc(t("settings.report.desc"))
       .addDropdown((dropdown) =>
@@ -131,46 +137,50 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.filename.name"))
       .setDesc(t("settings.filename.desc"))
       .addText((text) =>
         text
           .setPlaceholder("{{name}}")
           .setValue(this.plugin.settings.filenameTemplate)
+          .then((component) => component.inputEl.addClass("owen-mermaid-settings-text-wide"))
           .onChange(async (value) => {
             this.plugin.settings.filenameTemplate = normalizeFilenameTemplateSetting(value, DEFAULT_SETTINGS.filenameTemplate);
             await this.plugin.saveSettings();
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.quality.name"))
       .setDesc(t("settings.quality.desc"))
       .addSlider((slider) =>
         slider
           .setLimits(0.1, 1, 0.05)
           .setValue(this.plugin.settings.imageQuality)
+          .setDisabled(this.plugin.settings.exportFormat !== "jpg")
+          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.imageQuality = value;
             await this.plugin.saveSettings();
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.scale.name"))
       .setDesc(t("settings.scale.desc"))
       .addSlider((slider) =>
         slider
           .setLimits(1, 4, 1)
           .setValue(this.plugin.settings.exportScale)
+          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.exportScale = value;
             await this.plugin.saveSettings();
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(exportSection)
       .setName(t("settings.background.name"))
       .setDesc(t("settings.background.desc"))
       .addText((text) =>
@@ -188,32 +198,35 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           }),
       );
 
-    this.addSectionHeader(
+    const zoomSection = this.addSection(
       containerEl,
       t("settings.zoom.section"),
       t("settings.zoom.sectionDesc"),
+      "zoom-in",
     );
 
-    new Setting(containerEl)
+    new Setting(zoomSection)
       .setName(t("settings.zoomStep.name"))
       .setDesc(t("settings.zoomStep.desc"))
       .addSlider((slider) =>
         slider
           .setLimits(0.05, 0.4, 0.05)
           .setValue(this.plugin.settings.zoomStep)
+          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.zoomStep = value;
             await this.plugin.saveSettings();
           }),
       );
 
-    this.addSectionHeader(
+    const editorSection = this.addSection(
       containerEl,
       t("settings.editor.section"),
       t("settings.editor.sectionDesc"),
+      "workflow",
     );
 
-    new Setting(containerEl)
+    new Setting(editorSection)
       .setName(t("settings.direction.name"))
       .setDesc(t("settings.direction.desc"))
       .addDropdown((dropdown) =>
@@ -227,7 +240,7 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(editorSection)
       .setName(t("settings.renderFirst.name"))
       .setDesc(t("settings.renderFirst.desc"))
       .addToggle((toggle) =>
@@ -240,11 +253,14 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
       );
   }
 
-  private addSectionHeader(containerEl: HTMLElement, title: string, description: string): void {
-    const section = containerEl.createDiv({ cls: "owen-mermaid-settings-section" });
-    section.createSpan({ cls: "owen-mermaid-section-glyph" });
-    const copy = section.createDiv({ cls: "owen-mermaid-settings-section-copy" });
+  private addSection(containerEl: HTMLElement, title: string, description: string, icon: string): HTMLElement {
+    const group = containerEl.createEl("section", { cls: "owen-mermaid-settings-group", attr: { "aria-label": title } });
+    const header = group.createDiv({ cls: "owen-mermaid-settings-section" });
+    const glyph = header.createSpan({ cls: "owen-mermaid-section-glyph" });
+    setIcon(glyph, icon);
+    const copy = header.createDiv({ cls: "owen-mermaid-settings-section-copy" });
     copy.createDiv({ cls: "owen-mermaid-settings-section-title", text: title });
     copy.createDiv({ cls: "owen-mermaid-settings-section-description", text: description });
+    return group;
   }
 }

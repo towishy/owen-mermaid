@@ -31,6 +31,7 @@ interface BatchExportResult {
 export default class OwenMermaidPlugin extends Plugin {
   settings: OwenMermaidSettings = { ...DEFAULT_SETTINGS };
   private openDocumentsProcessTimeout?: number;
+  private readonly observedMarkdownContainers = new WeakSet<HTMLElement>();
 
   get locale(): Locale {
     return resolveLocale(this.settings.language, moment.locale());
@@ -264,8 +265,34 @@ export default class OwenMermaidPlugin extends Plugin {
   private processOpenDocuments(): void {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       const container = leaf.view.containerEl;
+      this.observeMarkdownContainer(container);
       this.processMermaidBlocks(container);
     }
+  }
+
+  private observeMarkdownContainer(container: HTMLElement): void {
+    if (this.observedMarkdownContainers.has(container)) return;
+    this.observedMarkdownContainers.add(container);
+
+    const observer = new MutationObserver((mutations) => {
+      const hasUnprocessedMermaid = mutations.some((mutation) => {
+        if (mutation.type === "attributes") {
+          return mutation.target instanceof HTMLElement
+            && mutation.target.matches(MERMAID_SELECTOR)
+            && !mutation.target.hasAttribute(MARKER_ATTR);
+        }
+
+        return Array.from(mutation.addedNodes).some((node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          if (node.matches(MERMAID_SELECTOR) && !node.hasAttribute(MARKER_ATTR)) return true;
+          return Boolean(node.querySelector(`${MERMAID_SELECTOR}:not([${MARKER_ATTR}])`));
+        });
+      });
+      if (hasUnprocessedMermaid) this.queueProcessOpenDocuments(20);
+    });
+
+    observer.observe(container, { attributes: true, attributeFilter: ["class"], childList: true, subtree: true });
+    this.register(() => observer.disconnect());
   }
 
   private queueProcessOpenDocuments(delay = 80): void {
