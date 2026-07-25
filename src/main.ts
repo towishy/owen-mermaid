@@ -3,13 +3,14 @@ import { MermaidEditorModal } from "./editorModal";
 import { downloadSvgImage, exportSvgImageToVault, getVaultExportFolder, writeTextToAvailableVaultPath, type ExportFilenameContext } from "./export";
 import { createTranslator, normalizeLocalePreference, resolveLocale, type Locale, type LocalePreference, type TranslationKey } from "./i18n";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
-import { extractMermaidSource, findMermaidFences, replaceMermaidSourceInContent, type MermaidFenceInfo } from "./markdown";
+import { extractMermaidSource, findMermaidFences, replaceMermaidSourceInContent, selectMermaidFence, type MermaidFenceInfo } from "./markdown";
 import { DEFAULT_SETTINGS, OwenMermaidSettingTab, type OwenMermaidSettings } from "./settings";
-import type { ExportFormat, MermaidBlockContext, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
+import type { DiagramSyntax, ExportFormat, MermaidBlockContext, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
 import { hasOwenMermaidLayout, renderVisualDiagram } from "./visualRenderer";
 import { MermaidZoomModal } from "./zoomModal";
 
 const MARKER_ATTR = "data-owen-mermaid-enhanced";
+const ENHANCEMENT_VERSION = "2";
 const MERMAID_SELECTOR = ".mermaid, .block-language-mermaid";
 const MERMAID_CODE_SELECTOR = "pre > code.language-mermaid";
 const EARLY_RENDER_SORT_ORDER = -1000;
@@ -68,6 +69,7 @@ export default class OwenMermaidPlugin extends Plugin {
     this.register(() => {
       if (this.openDocumentsProcessTimeout !== undefined) window.clearTimeout(this.openDocumentsProcessTimeout);
       this.openDocumentsProcessTimeout = undefined;
+      this.cleanupOpenDocumentUi();
     });
   }
 
@@ -91,9 +93,9 @@ export default class OwenMermaidPlugin extends Plugin {
     this.refreshInlineToolbarLabels();
   }
 
-  processMermaidBlocks(el: HTMLElement, ctx?: MarkdownPostProcessorContext): boolean {
+  processMermaidBlocks(el: HTMLElement, ctx?: MarkdownPostProcessorContext, sourcePath?: string): boolean {
     const blocks = this.collectMermaidBlocks(el);
-    for (const block of blocks) void this.attachBlockUi(block, ctx);
+    for (const block of blocks) void this.attachBlockUi(block, ctx, sourcePath);
     return blocks.length > 0;
   }
 
@@ -117,7 +119,7 @@ export default class OwenMermaidPlugin extends Plugin {
 
       const block = el.ownerDocument.createElement("div");
       block.classList.add("block-language-mermaid", "owen-mermaid-block");
-      block.setAttribute(MARKER_ATTR, "true");
+      block.setAttribute(MARKER_ATTR, ENHANCEMENT_VERSION);
       ensureLiquidGlassFilter(block.ownerDocument);
 
       const visualSvg = this.renderStoredLayoutSvg(block, source);
@@ -126,8 +128,8 @@ export default class OwenMermaidPlugin extends Plugin {
       const blockContext = this.createCodeBlockContext(source, pre, ctx);
       pre.replaceWith(block);
       blockContext.blockIndex = this.getBlockIndex(block);
-      this.attachSvgActions(block, visualSvg, blockContext);
-      this.watchStoredLayoutBlock(block, blockContext);
+      this.attachSvgActions(block, visualSvg, blockContext, ctx);
+      this.watchStoredLayoutBlock(block, blockContext, ctx);
       rendered = true;
     }
 
@@ -141,50 +143,57 @@ export default class OwenMermaidPlugin extends Plugin {
     return Array.from(new Set(codes));
   }
 
-  private async attachBlockUi(block: HTMLElement, ctx?: MarkdownPostProcessorContext): Promise<void> {
-    if (block.hasAttribute(MARKER_ATTR)) return;
-    block.setAttribute(MARKER_ATTR, "true");
+  private async attachBlockUi(block: HTMLElement, ctx?: MarkdownPostProcessorContext, sourcePath?: string): Promise<void> {
+    if (block.getAttribute(MARKER_ATTR) === ENHANCEMENT_VERSION) return;
+    block.querySelectorAll(".owen-mermaid-inline-toolbar").forEach((toolbar) => toolbar.remove());
+    block.setAttribute(MARKER_ATTR, ENHANCEMENT_VERSION);
     block.addClass("owen-mermaid-block");
     ensureLiquidGlassFilter(block.ownerDocument);
 
-    let blockContext = this.createBlockContext(block, ctx);
+    const blockContext = this.createBlockContext(block, ctx, sourcePath);
     const initialVisualSvg = this.renderStoredLayoutSvg(block, blockContext.source);
     if (initialVisualSvg) {
-      this.attachSvgActions(block, initialVisualSvg, blockContext);
-      this.watchStoredLayoutBlock(block, blockContext);
+      this.attachSvgActions(block, initialVisualSvg, blockContext, ctx);
+      this.watchStoredLayoutBlock(block, blockContext, ctx);
       return;
     }
 
     const nativeSvg = block.querySelector<SVGSVGElement>("svg");
     if (!nativeSvg) {
-      this.waitForSvg(block, ctx);
+      this.waitForSvg(block, ctx, sourcePath);
       return;
     }
 
-    if (!hasOwenMermaidLayout(blockContext.source ?? "")) {
-      blockContext = await this.resolveEditableContext(blockContext, nativeSvg.textContent ?? "");
-      if (!block.isConnected) return;
-    }
-
     const visualSvg = this.renderStoredLayoutSvg(block, blockContext.source);
-    this.attachSvgActions(block, visualSvg ?? nativeSvg, blockContext);
-    if (visualSvg) this.watchStoredLayoutBlock(block, blockContext);
+    this.attachSvgActions(block, visualSvg ?? nativeSvg, blockContext, ctx);
+    if (visualSvg) this.watchStoredLayoutBlock(block, blockContext, ctx);
   }
 
-  private attachSvgActions(block: HTMLElement, svg: SVGSVGElement, blockContext: MermaidBlockContext): void {
+  private attachSvgActions(block: HTMLElement, svg: SVGSVGElement, blockContext: MermaidBlockContext, ctx?: MarkdownPostProcessorContext): void {
     const toolbar = block.createDiv({ cls: "owen-mermaid-inline-toolbar" });
     this.createInlineButton(toolbar, "maximize-2", "zoom", this.t("inline.zoom"), () => this.openZoom(svg));
-    this.createInlineButton(toolbar, "edit-3", "edit", this.t("inline.edit"), () => void this.openEditor(blockContext, svg));
+    this.createInlineButton(toolbar, "edit-3", "edit", this.t("inline.edit"), () => void this.openEditor(block, blockContext, svg, ctx));
     this.createInlineButton(toolbar, "download", "download", this.t("inline.download"), () => void this.download(svg, this.settings.exportFormat, blockContext));
+
+    const positionToolbar = () => {
+      const blockRect = block.getBoundingClientRect();
+      const svgRect = svg.getBoundingClientRect();
+      const isRtl = getComputedStyle(block).direction === "rtl";
+      const svgStart = isRtl ? blockRect.right - svgRect.right : svgRect.left - blockRect.left;
+      toolbar.style.insetInlineStart = `${svgStart + svgRect.width / 2}px`;
+    };
+    positionToolbar();
+    this.registerDomEvent(block, "pointerenter", positionToolbar);
+    this.registerDomEvent(block, "focusin", positionToolbar);
 
     this.registerDomEvent(block, "contextmenu", (event: MouseEvent) => {
       if (!(event.target instanceof Element) || !event.target.closest("svg")) return;
       event.preventDefault();
-      this.showContextMenu(event, svg, blockContext);
+      this.showContextMenu(event, block, svg, blockContext, ctx);
     });
   }
 
-  private waitForSvg(block: HTMLElement, ctx?: MarkdownPostProcessorContext): void {
+  private waitForSvg(block: HTMLElement, ctx?: MarkdownPostProcessorContext, sourcePath?: string): void {
     const win = block.ownerDocument.defaultView ?? window;
     let done = false;
     let timeoutId: number | undefined;
@@ -198,7 +207,7 @@ export default class OwenMermaidPlugin extends Plugin {
       observer.disconnect();
       if (timeoutId !== undefined) win.clearTimeout(timeoutId);
       block.removeAttribute(MARKER_ATTR);
-      if (svg) void this.attachBlockUi(block, ctx);
+      if (svg) void this.attachBlockUi(block, ctx, sourcePath);
     };
 
     observer.observe(block, { childList: true, subtree: true });
@@ -212,7 +221,7 @@ export default class OwenMermaidPlugin extends Plugin {
     this.register(finish);
   }
 
-  private watchStoredLayoutBlock(block: HTMLElement, blockContext: MermaidBlockContext): void {
+  private watchStoredLayoutBlock(block: HTMLElement, blockContext: MermaidBlockContext, ctx?: MarkdownPostProcessorContext): void {
     const source = blockContext.source;
     if (!source || !hasOwenMermaidLayout(source)) return;
 
@@ -223,8 +232,8 @@ export default class OwenMermaidPlugin extends Plugin {
       if (block.querySelector("svg.owen-mermaid-visual-svg") && block.querySelector(".owen-mermaid-inline-toolbar")) return;
       const visualSvg = this.renderStoredLayoutSvg(block, source);
       if (!visualSvg) return;
-      block.setAttribute(MARKER_ATTR, "true");
-      this.attachSvgActions(block, visualSvg, blockContext);
+      block.setAttribute(MARKER_ATTR, ENHANCEMENT_VERSION);
+      this.attachSvgActions(block, visualSvg, blockContext, ctx);
     });
     const finish = () => {
       if (done) return;
@@ -264,9 +273,21 @@ export default class OwenMermaidPlugin extends Plugin {
 
   private processOpenDocuments(): void {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-      const container = leaf.view.containerEl;
+      const view = leaf.view as MarkdownView;
+      const container = view.containerEl;
       this.observeMarkdownContainer(container);
-      this.processMermaidBlocks(container);
+      this.processMermaidBlocks(container, undefined, view.file?.path);
+    }
+  }
+
+  private cleanupOpenDocumentUi(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const container = leaf.view.containerEl;
+      container.querySelectorAll(".owen-mermaid-inline-toolbar").forEach((toolbar) => toolbar.remove());
+      container.querySelectorAll<HTMLElement>(`[${MARKER_ATTR}]`).forEach((block) => {
+        block.removeAttribute(MARKER_ATTR);
+        block.removeClass("owen-mermaid-block");
+      });
     }
   }
 
@@ -279,13 +300,14 @@ export default class OwenMermaidPlugin extends Plugin {
         if (mutation.type === "attributes") {
           return mutation.target instanceof HTMLElement
             && mutation.target.matches(MERMAID_SELECTOR)
-            && !mutation.target.hasAttribute(MARKER_ATTR);
+            && mutation.target.getAttribute(MARKER_ATTR) !== ENHANCEMENT_VERSION;
         }
 
         return Array.from(mutation.addedNodes).some((node) => {
           if (!(node instanceof HTMLElement)) return false;
-          if (node.matches(MERMAID_SELECTOR) && !node.hasAttribute(MARKER_ATTR)) return true;
-          return Boolean(node.querySelector(`${MERMAID_SELECTOR}:not([${MARKER_ATTR}])`));
+          if (node.matches(MERMAID_SELECTOR) && node.getAttribute(MARKER_ATTR) !== ENHANCEMENT_VERSION) return true;
+          return Array.from(node.querySelectorAll<HTMLElement>(MERMAID_SELECTOR))
+            .some((block) => block.getAttribute(MARKER_ATTR) !== ENHANCEMENT_VERSION);
         });
       });
       if (hasUnprocessedMermaid) this.queueProcessOpenDocuments(20);
@@ -314,10 +336,10 @@ export default class OwenMermaidPlugin extends Plugin {
     });
   }
 
-  private showContextMenu(event: MouseEvent, svg: SVGSVGElement, context: MermaidBlockContext): void {
+  private showContextMenu(event: MouseEvent, block: HTMLElement, svg: SVGSVGElement, context: MermaidBlockContext, ctx?: MarkdownPostProcessorContext): void {
     const menu = new Menu();
     menu.addItem((item) => item.setTitle(this.t("inline.zoom")).setIcon("maximize-2").onClick(() => this.openZoom(svg)));
-    menu.addItem((item) => item.setTitle(this.t("inline.edit")).setIcon("edit-3").onClick(() => void this.openEditor(context, svg)));
+    menu.addItem((item) => item.setTitle(this.t("inline.edit")).setIcon("edit-3").onClick(() => void this.openEditor(block, context, svg, ctx)));
     menu.addSeparator();
     menu.addItem((item) => item.setTitle(this.t("menu.downloadPng")).setIcon("download").onClick(() => void this.download(svg, "png", context)));
     menu.addItem((item) => item.setTitle(this.t("menu.downloadJpg")).setIcon("image").onClick(() => void this.download(svg, "jpg", context)));
@@ -328,8 +350,9 @@ export default class OwenMermaidPlugin extends Plugin {
     new MermaidZoomModal(this.app, svg, this.settings.zoomStep, createTranslator(this.locale)).open();
   }
 
-  private async openEditor(context: MermaidBlockContext, svg?: SVGSVGElement): Promise<void> {
-    const resolvedContext = await this.resolveEditableContext(context, svg?.textContent ?? "");
+  private async openEditor(block: HTMLElement, context: MermaidBlockContext, svg?: SVGSVGElement, ctx?: MarkdownPostProcessorContext): Promise<void> {
+    const currentContext = this.refreshBlockContext(block, context, ctx);
+    const resolvedContext = await this.resolveEditableContext(currentContext, svg);
     if (!resolvedContext.sourcePath || resolvedContext.lineStart === undefined || resolvedContext.lineEnd === undefined) {
       new Notice(this.t("notice.sourceBlockMissing"));
       return;
@@ -381,7 +404,7 @@ export default class OwenMermaidPlugin extends Plugin {
 
     const results: BatchExportResult[] = [];
     for (const entry of entries) {
-      const fence = this.findFenceForRenderedText(fences, entry.svg.textContent ?? "") ?? fences[Math.min(entry.index, fences.length - 1)];
+      const fence = this.findFenceForRenderedSvg(fences, entry.svg) ?? fences[Math.min(entry.index, fences.length - 1)];
       const context: MermaidBlockContext = {
         sourcePath: file.path,
         lineStart: fence?.lineStart,
@@ -446,10 +469,10 @@ export default class OwenMermaidPlugin extends Plugin {
     return `${lines.join("\n")}\n`;
   }
 
-  private createBlockContext(block: HTMLElement, ctx?: MarkdownPostProcessorContext): MermaidBlockContext {
+  private createBlockContext(block: HTMLElement, ctx?: MarkdownPostProcessorContext, sourcePath?: string): MermaidBlockContext {
     const sectionInfo = ctx ? this.getSectionInfo(ctx, block) : null;
     return {
-      sourcePath: ctx?.sourcePath,
+      sourcePath: ctx?.sourcePath ?? sourcePath,
       lineStart: sectionInfo?.lineStart,
       lineEnd: sectionInfo?.lineEnd,
       source: sectionInfo ? extractMermaidSource(sectionInfo.text) : readUnrenderedMermaidSource(block),
@@ -467,10 +490,21 @@ export default class OwenMermaidPlugin extends Plugin {
     };
   }
 
-  private async resolveEditableContext(context: MermaidBlockContext, renderedText = ""): Promise<MermaidBlockContext> {
-    if (!renderedText && context.sourcePath && context.lineStart !== undefined && context.lineEnd !== undefined) return context;
+  private refreshBlockContext(block: HTMLElement, context: MermaidBlockContext, ctx?: MarkdownPostProcessorContext): MermaidBlockContext {
+    const sectionInfo = ctx ? this.getSectionInfo(ctx, block) : null;
+    return {
+      ...context,
+      sourcePath: ctx?.sourcePath ?? context.sourcePath,
+      lineStart: sectionInfo?.lineStart ?? context.lineStart,
+      lineEnd: sectionInfo?.lineEnd ?? context.lineEnd,
+      source: sectionInfo ? extractMermaidSource(sectionInfo.text) : context.source,
+      blockIndex: this.getBlockIndex(block),
+    };
+  }
 
-    const sourcePath = context.sourcePath ?? this.app.workspace.getActiveFile()?.path;
+  private async resolveEditableContext(context: MermaidBlockContext, svg?: SVGSVGElement): Promise<MermaidBlockContext> {
+
+    const sourcePath = context.sourcePath;
     if (!sourcePath) return context;
 
     const file = this.app.vault.getAbstractFileByPath(sourcePath);
@@ -480,11 +514,9 @@ export default class OwenMermaidPlugin extends Plugin {
     const fences = findMermaidFences(content);
     if (fences.length === 0) return { ...context, sourcePath };
 
-    const source = context.source?.trim();
-    const matchedFence = source ? fences.find((fence) => fence.source.trim() === source) : undefined;
-    const renderedFence = this.findFenceForRenderedText(fences, renderedText);
-    const fallbackFence = fences[Math.min(context.blockIndex ?? 0, fences.length - 1)];
-    const fence = renderedFence ?? matchedFence ?? fallbackFence;
+    const renderedFence = svg ? this.findFenceForRenderedSvg(fences, svg) : undefined;
+    const fence = selectMermaidFence(fences, context, renderedFence);
+    if (!fence) return { ...context, sourcePath };
 
     return {
       ...context,
@@ -495,17 +527,25 @@ export default class OwenMermaidPlugin extends Plugin {
     };
   }
 
-  private findFenceForRenderedText(fences: MermaidFenceInfo[], renderedText: string): MermaidFenceInfo | undefined {
-    const rendered = normalizeRenderedText(renderedText);
+  private findFenceForRenderedSvg(fences: MermaidFenceInfo[], svg: SVGSVGElement): MermaidFenceInfo | undefined {
+    const rendered = normalizeRenderedText(svg.textContent ?? "");
     if (!rendered) return undefined;
+    const syntax = detectRenderedSyntax(svg);
 
     let best: { fence: MermaidFenceInfo; score: number } | undefined;
+    let tied = false;
     for (const fence of fences) {
+      if (syntax && detectSourceSyntax(fence.source) !== syntax) continue;
       const score = scoreFenceAgainstRenderedText(fence.source, rendered);
       if (score < 2) continue;
-      if (!best || score > best.score) best = { fence, score };
+      if (!best || score > best.score) {
+        best = { fence, score };
+        tied = false;
+      } else if (score === best.score) {
+        tied = true;
+      }
     }
-    return best?.fence;
+    return tied ? undefined : best?.fence;
   }
 
   private getBlockIndex(block: HTMLElement): number {
@@ -541,7 +581,7 @@ export default class OwenMermaidPlugin extends Plugin {
         const view = leaf.view as MarkdownView & { previewMode?: { rerender?: (force?: boolean) => void } };
         if (sourcePath && view.file?.path !== sourcePath) continue;
         view.previewMode?.rerender?.(true);
-        this.processMermaidBlocks(view.containerEl);
+        this.processMermaidBlocks(view.containerEl, undefined, view.file?.path);
       }
     };
     refresh();
@@ -673,7 +713,27 @@ function extractFenceTextTokens(source: string): string[] {
 }
 
 function normalizeRenderedText(value: string): string {
-  return value.replace(/[#.][A-Za-z0-9_-]+\{[^}]*\}/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/[#.][A-Za-z0-9_-]+\{[^}]*\}/g, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectSourceSyntax(source: string): DiagramSyntax {
+  if (/^\s*sequenceDiagram\b/im.test(source)) return "sequenceDiagram";
+  if (/^\s*stateDiagram(?:-v2)?\b/im.test(source)) return "stateDiagram";
+  return "flowchart";
+}
+
+function detectRenderedSyntax(svg: SVGSVGElement): DiagramSyntax | undefined {
+  const signature = `${svg.getAttribute("data-diagram-syntax") ?? ""} ${svg.getAttribute("aria-roledescription") ?? ""} ${svg.id} ${svg.getAttribute("class") ?? ""}`.toLowerCase();
+  if (signature.includes("sequence") || svg.querySelector(".messageLine0, .messageLine1, .actor, .owen-mermaid-sequence-participants")) return "sequenceDiagram";
+  if (signature.includes("state")) return "stateDiagram";
+  if (signature.includes("flowchart") || svg.querySelector(".flowchart-link, g.node, .owen-mermaid-nodes")) return "flowchart";
+  return undefined;
 }
 
 function readUnrenderedMermaidSource(block: HTMLElement): string | undefined {

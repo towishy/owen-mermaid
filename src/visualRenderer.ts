@@ -1,5 +1,6 @@
 import { createConnectorPath, getConnectorLabelPoint } from "./editorGeometry";
 import { parseFlowchart } from "./flowchart";
+import { layoutNodeLabel } from "./textLayout";
 import type { DiagramEdge, DiagramFreeLine, DiagramNode, FlowDiagram, FlowDirection } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -27,6 +28,7 @@ export function renderVisualDiagram(source: string, document: Document, fallback
   const bounds = getCanvasBounds(diagram);
   const svg = createSvg(document, "svg", {
     class: "owen-mermaid-visual-svg",
+    "data-diagram-syntax": diagram.syntax,
     viewBox: `${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`,
     width: String(Math.round(bounds.width)),
     height: String(Math.round(bounds.height)),
@@ -92,14 +94,7 @@ function renderNode(parent: SVGElement, node: DiagramNode): void {
   });
   parent.appendChild(group);
   appendShape(group, node);
-  const text = createSvg(parent.ownerDocument, "text", {
-    x: "0",
-    y: "5",
-    "text-anchor": "middle",
-    ...textStyleAttrs(node.textColor, node.textSize),
-  });
-  text.textContent = node.label;
-  group.appendChild(text);
+  appendNodeLabel(group, node);
 }
 
 function appendShape(group: SVGElement, node: DiagramNode): void {
@@ -158,8 +153,22 @@ function renderSequenceParticipant(parent: SVGElement, node: DiagramNode, y: num
   const group = createSvg(parent.ownerDocument, "g", { class: "owen-mermaid-sequence-participant", transform: `translate(${node.x}, ${y})`, "data-id": node.id });
   parent.appendChild(group);
   group.appendChild(createSvg(parent.ownerDocument, "rect", { x: String(-node.width / 2), y: String(-node.height / 2), width: String(node.width), height: String(node.height), rx: "7", ...nodeStyleAttrs(node) }));
-  const text = createSvg(parent.ownerDocument, "text", { x: "0", y: "5", "text-anchor": "middle", ...textStyleAttrs(node.textColor, node.textSize) });
-  text.textContent = node.label;
+  appendNodeLabel(group, node);
+}
+
+function appendNodeLabel(group: SVGElement, node: DiagramNode): void {
+  const layout = layoutNodeLabel(node.label, node.width, node.height, node.textSize ?? 13);
+  const text = createSvg(group.ownerDocument, "text", {
+    x: "0",
+    y: String(layout.firstBaseline),
+    "text-anchor": "middle",
+    ...textStyleAttrs(node.textColor, layout.fontSize),
+  });
+  for (const [index, line] of layout.lines.entries()) {
+    const tspan = createSvg(group.ownerDocument, "tspan", { x: "0", dy: index === 0 ? "0" : String(layout.lineHeight) });
+    tspan.textContent = line;
+    text.appendChild(tspan);
+  }
   group.appendChild(text);
 }
 

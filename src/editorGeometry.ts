@@ -5,6 +5,18 @@ export interface CanvasPoint {
   y: number;
 }
 
+export interface ScrollPosition {
+  left: number;
+  top: number;
+}
+
+export function getDraggedScrollPosition(start: ScrollPosition, delta: CanvasPoint, max: ScrollPosition): ScrollPosition {
+  return {
+    left: Math.max(0, Math.min(max.left, start.left + delta.x)),
+    top: Math.max(0, Math.min(max.top, start.top + delta.y)),
+  };
+}
+
 export function createConnectorPath(from: CanvasPoint, to: CanvasPoint, route: EdgeRoute = "curve", waypoints: CanvasPoint[] = []): string {
   const points = [from, ...waypoints, to];
   if (waypoints.length > 0) return createWaypointPath(points, route);

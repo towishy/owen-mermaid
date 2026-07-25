@@ -82,7 +82,9 @@ try {
       };
     });
     if (Number(toolbarAfterHover.opacity) < 0.9 || toolbarAfterHover.pointerEvents !== "auto") throw new Error("Inline toolbar did not become interactive on Mermaid hover.");
-    if (toolbarAfterHover.svgCenterX === null || Math.abs(toolbarAfterHover.toolbarCenterX - toolbarAfterHover.svgCenterX) > 8) throw new Error("Inline toolbar is not aligned with the visible Mermaid diagram.");
+    if (toolbarAfterHover.svgCenterX === null || Math.abs(toolbarAfterHover.toolbarCenterX - toolbarAfterHover.svgCenterX) > 8) {
+      throw new Error(`Inline toolbar is not aligned with the visible Mermaid diagram: ${JSON.stringify(toolbarAfterHover)}`);
+    }
 
     ui = await visibleBlock.evaluate((block) => {
       const toolbar = block.querySelector(".owen-mermaid-inline-toolbar");
@@ -117,11 +119,11 @@ try {
       if (!(stage instanceof HTMLElement) || !(canvas instanceof SVGSVGElement)) throw new Error("Editor stage or canvas was not found.");
       const scrollBefore = { left: stage.scrollLeft, top: stage.scrollTop };
       const rect = canvas.getBoundingClientRect();
-      const startX = rect.left + Math.min(rect.width - 48, stage.clientWidth - 48);
-      const startY = rect.top + Math.min(rect.height - 48, stage.clientHeight - 48);
+      const startX = rect.left + 48;
+      const startY = rect.top + 48;
       canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: startX, clientY: startY, pointerId: 1 }));
-      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, button: 0, clientX: startX - 120, clientY: startY - 90, pointerId: 1 }));
-      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: startX - 120, clientY: startY - 90, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, button: 0, clientX: startX + 120, clientY: startY + 90, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: startX + 120, clientY: startY + 90, pointerId: 1 }));
       return {
         scrollBefore,
         scrollAfter: { left: stage.scrollLeft, top: stage.scrollTop },
@@ -148,7 +150,7 @@ try {
       toolbarCount: block.querySelectorAll(".owen-mermaid-inline-toolbar").length,
       actions: Array.from(block.querySelectorAll(".owen-mermaid-inline-toolbar [data-action]")).map((button) => button.getAttribute("data-action")),
     }));
-    if (livePreview.marker !== "true" || livePreview.toolbarCount !== 1) throw new Error("Live Preview Mermaid toolbar was not attached.");
+    if (livePreview.marker !== "2" || livePreview.toolbarCount !== 1) throw new Error("Live Preview Mermaid toolbar was not attached.");
     ui = { ...ui, editor: { ...editorContract, ...panResult }, livePreview };
   }
 

@@ -49,6 +49,8 @@ When adding new functionality, add a new row to this table so the current featur
 | Visual editor | Flowchart editing | Creates, edits, drags, resizes, duplicates, and deletes common flowchart nodes. |
 | Visual editor | Basic state and sequence editing | Parses and edits basic `stateDiagram` and `sequenceDiagram` participants, states, and messages. |
 | Visual editor | Drag-and-drop creation | Supports clicking or dragging shape tools onto the canvas. |
+| Visual editor | Long canvas panning | Scrolls oversized diagrams by dragging the editor background horizontally or vertically. |
+| Visual editor | Fitted node labels | Wraps, scales, and truncates long or explicit multi-line labels to keep text inside node bounds. |
 | Visual editor | Connector editing | Creates, reconnects, reverses, styles, deletes, and labels connectors and free lines. |
 | Visual editor | Connector route modes | Supports curve, straight, and elbow connector routes stored in Owen Mermaid metadata. |
 | Visual editor | Draggable connector labels | Allows connector and free-line labels to be repositioned visually and preserved in metadata. |
@@ -63,6 +65,7 @@ When adding new functionality, add a new row to this table so the current featur
 | Visual editor | Source diff preview | Shows a compact Mermaid source diff before applying changes. |
 | Visual editor | Preserved unsupported lines | Displays preserved unsupported Mermaid lines such as styles, classes, click handlers, link styles, and subgraph blocks. |
 | Mermaid source | Layout metadata | Persists node size/position, free lines, connector routes, and label offsets in `%% owen-mermaid` metadata. |
+| Mermaid source | Exact block targeting | Re-resolves the clicked Mermaid fence and rejects ambiguous stale matches instead of editing another diagram. |
 | Export | Single image download | Downloads rendered Mermaid SVGs as PNG or JPG with configured scale, background, and quality. |
 | Export | Batch export | Exports every rendered Mermaid SVG in the active note to a vault folder. |
 | Export | Batch reports | Optionally writes a Markdown report for all batch exports or failures only. |

@@ -1,10 +1,11 @@
 import { App, Menu, Modal, Notice, setIcon } from "obsidian";
-import { createConnectorPath as createEditorConnectorPath, getConnectorLabelPoint } from "./editorGeometry";
+import { createConnectorPath as createEditorConnectorPath, getConnectorLabelPoint, getDraggedScrollPosition } from "./editorGeometry";
 import { HistoryStack } from "./editorHistory";
 import { assessSourceDraft as assessMermaidSourceDraft, createChangeSummary as createMermaidChangeSummary, createSourceDiagnostics as createMermaidSourceDiagnostics, createSourceDiffLines as createMermaidSourceDiffLines, generateEditorSource } from "./editorSource";
 import { cloneDiagram, createEdge, createNode, generateFlowchart, parseFlowchart } from "./flowchart";
 import { createTranslator, type Locale, type Translator } from "./i18n";
 import { ensureLiquidGlassFilter } from "./liquidGlass";
+import { layoutNodeLabel } from "./textLayout";
 import type { DiagramEdge, DiagramFreeLine, DiagramNode, EdgeRoute, EdgeStyle, FlowDiagram, FlowDirection, MermaidRenderedLayout, NodeShape } from "./types";
 
 const BASE_CANVAS_WIDTH = 980;
@@ -1005,8 +1006,13 @@ export class MermaidEditorModal extends Modal {
     }
     if (!state.moved) return;
     event.preventDefault();
-    stage.scrollLeft = state.startScrollLeft - deltaX;
-    stage.scrollTop = state.startScrollTop - deltaY;
+    const scroll = getDraggedScrollPosition(
+      { left: state.startScrollLeft, top: state.startScrollTop },
+      { x: deltaX, y: deltaY },
+      { left: Math.max(0, stage.scrollWidth - stage.clientWidth), top: Math.max(0, stage.scrollHeight - stage.clientHeight) },
+    );
+    stage.scrollLeft = scroll.left;
+    stage.scrollTop = scroll.top;
   }
 
   private endStagePan(): void {
@@ -1146,7 +1152,7 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("contextmenu", (event) => this.showNodeMenu(event, node));
     group.addEventListener("dblclick", () => this.promptNodeLabel(node));
     group.createSvg("rect", { attr: { x: String(-node.width / 2), y: String(-node.height / 2), width: String(node.width), height: String(node.height), rx: "7", ...this.nodeStyleAttrs(node) } });
-    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor, node.textSize) } }).setText(node.label);
+    this.renderNodeLabel(group, node);
   }
 
   private renderSequenceMessage(parent: SVGGElement, edge: DiagramEdge): void {
@@ -1218,8 +1224,23 @@ export class MermaidEditorModal extends Modal {
     group.addEventListener("dblclick", () => this.promptNodeLabel(node));
 
     this.createShape(group, node);
-    group.createSvg("text", { attr: { x: "0", y: "5", "text-anchor": "middle", ...this.textStyleAttrs(node.textColor, node.textSize) } }).setText(node.label);
+    this.renderNodeLabel(group, node);
     if (selected || connectingSource || connectTarget) this.renderNodeHandles(group, node, connectTarget ? this.connectTargetHandle : undefined, !connectTarget);
+  }
+
+  private renderNodeLabel(group: SVGGElement, node: DiagramNode): void {
+    const layout = layoutNodeLabel(node.label, node.width, node.height, node.textSize ?? DEFAULT_NODE_TEXT_SIZE);
+    const text = group.createSvg("text", {
+      attr: {
+        x: "0",
+        y: String(layout.firstBaseline),
+        "text-anchor": "middle",
+        ...this.textStyleAttrs(node.textColor, layout.fontSize),
+      },
+    });
+    layout.lines.forEach((line, index) => {
+      text.createSvg("tspan", { attr: { x: "0", dy: index === 0 ? "0" : String(layout.lineHeight) } }).setText(line);
+    });
   }
 
   private createShape(group: SVGGElement, node: DiagramNode): void {

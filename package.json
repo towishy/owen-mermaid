@@ -1,6 +1,6 @@
 {
   "name": "owen-mermaid",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "description": "Zoom, edit, and export Mermaid SVG diagrams.",
   "main": "main.js",
   "scripts": {

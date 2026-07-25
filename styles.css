@@ -126,9 +126,9 @@
 }
 
 .owen-mermaid-icon-button.owen-mermaid-primary-action {
-  background: var(--interactive-accent, #0284c7);
+  background: var(--owen-mermaid-workbench-primary);
   border-color: transparent;
-  color: var(--text-on-accent, #ffffff);
+  color: var(--owen-mermaid-workbench-primary-text);
   gap: 6px;
   padding: 0 11px;
   width: auto;
@@ -136,14 +136,22 @@
 
 .owen-mermaid-icon-button.owen-mermaid-primary-action:hover,
 .owen-mermaid-icon-button.owen-mermaid-primary-action:focus-visible {
-  background: var(--interactive-accent-hover, #0369a1);
+  background: var(--owen-mermaid-workbench-primary-hover);
   border-color: transparent;
-  color: var(--text-on-accent, #ffffff);
+  color: var(--owen-mermaid-workbench-primary-text);
 }
 
 .owen-mermaid-icon-button.owen-mermaid-primary-action:disabled {
-  background: rgba(148, 163, 184, 0.34);
-  color: var(--text-muted);
+  background: var(--owen-mermaid-workbench-disabled-surface);
+  border-color: var(--owen-mermaid-workbench-border);
+  color: var(--owen-mermaid-workbench-disabled-text);
+  opacity: 1;
+}
+
+.owen-mermaid-icon-button.owen-mermaid-primary-action svg,
+.owen-mermaid-icon-button.owen-mermaid-primary-action .owen-mermaid-primary-action-label {
+  color: inherit;
+  stroke: currentColor;
 }
 
 .owen-mermaid-primary-action-label {
@@ -209,12 +217,19 @@
   --owen-mermaid-workbench-text-muted: #5f6672;
   --owen-mermaid-workbench-border: #dfe3e8;
   --owen-mermaid-workbench-primary: #4f46e5;
+  --owen-mermaid-workbench-primary-hover: #4338ca;
+  --owen-mermaid-workbench-primary-text: #ffffff;
+  --owen-mermaid-workbench-disabled-surface: #e2e8f0;
+  --owen-mermaid-workbench-disabled-text: #475569;
   --owen-mermaid-workbench-focus: #2563eb;
   --owen-mermaid-workbench-grid: rgba(95, 102, 114, 0.1);
   background: var(--owen-mermaid-workbench-canvas);
   display: grid;
   font-family: Aptos, "Pretendard Variable", "Segoe UI Variable", sans-serif;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .owen-mermaid-window-resize-handle {
@@ -1558,6 +1573,10 @@
   --owen-mermaid-workbench-text-muted: #aeb5c0;
   --owen-mermaid-workbench-border: #353b46;
   --owen-mermaid-workbench-primary: #818cf8;
+  --owen-mermaid-workbench-primary-hover: #a5b4fc;
+  --owen-mermaid-workbench-primary-text: #111318;
+  --owen-mermaid-workbench-disabled-surface: #2f3540;
+  --owen-mermaid-workbench-disabled-text: #cbd5e1;
   --owen-mermaid-workbench-focus: #60a5fa;
   --owen-mermaid-workbench-grid: rgba(174, 181, 192, 0.1);
 }

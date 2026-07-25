@@ -18,6 +18,30 @@ export function findMermaidFences(content: string): MermaidFenceInfo[] {
   return findMermaidFencesFromLines(content.split(/\r?\n/));
 }
 
+export function selectMermaidFence(
+  fences: MermaidFenceInfo[],
+  context: MermaidBlockContext,
+  renderedFence?: MermaidFenceInfo,
+): MermaidFenceInfo | undefined {
+  const rangedFences = findFencesInRange(fences, context.lineStart, context.lineEnd);
+  if (rangedFences.length === 1) return rangedFences[0];
+
+  const candidates = rangedFences.length > 1 ? rangedFences : fences;
+  const source = context.source?.trim();
+  const matchedFence = source ? candidates.find((fence) => fence.source.trim() === source) : undefined;
+  const renderedCandidate = renderedFence && candidates.includes(renderedFence) ? renderedFence : undefined;
+  return matchedFence ?? renderedCandidate ?? (candidates.length === 1 ? candidates[0] : undefined);
+}
+
+function findFencesInRange(fences: MermaidFenceInfo[], lineStart?: number, lineEnd?: number): MermaidFenceInfo[] {
+  if (lineStart === undefined || lineEnd === undefined) return [];
+  const rangeStart = Math.min(lineStart, lineEnd);
+  const rangeEnd = Math.max(lineStart, lineEnd);
+  const enclosed = fences.filter((fence) => rangeStart <= fence.lineStart && fence.lineEnd <= rangeEnd);
+  if (enclosed.length > 0) return enclosed;
+  return fences.filter((fence) => fence.lineStart <= rangeEnd && rangeStart <= fence.lineEnd);
+}
+
 export function replaceMermaidSourceInContent(content: string, context: MermaidBlockContext, nextSource: string): string {
   const lines = content.split(/\r?\n/);
   const fence = findReplacementFence(lines, context);
