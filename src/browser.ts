@@ -2,9 +2,11 @@ import type { App } from "obsidian";
 import "../styles.css";
 import { MermaidEditorModal } from "./editorModal";
 import { generateFlowchart, parseFlowchart } from "./flowchart";
-import type { Locale } from "./i18n";
-import type { FlowDirection, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
+import { createTranslator, type Locale } from "./i18n";
+import { svgToImageBlob } from "./svgExport";
+import type { ExportFormat, FlowDirection, MermaidRenderedLayout, RenderedEdgeLayout, RenderedNodeLayout } from "./types";
 import { hasOwenMermaidLayout, renderVisualDiagram } from "./visualRenderer";
+import { MermaidZoomModal } from "./zoomModal";
 
 export interface BrowserEditorOptions {
   fallbackDirection?: FlowDirection;
@@ -12,6 +14,20 @@ export interface BrowserEditorOptions {
   onSave: (nextSource: string) => Promise<void> | void;
   renderedSvg?: SVGSVGElement | null;
   source: string;
+}
+
+export interface BrowserViewerOptions {
+  locale?: Locale;
+  svg: SVGSVGElement;
+  zoomStep?: number;
+}
+
+export interface BrowserExportOptions {
+  background?: string;
+  format: ExportFormat;
+  quality?: number;
+  scale?: number;
+  svg: SVGSVGElement;
 }
 
 export function openEditor(options: BrowserEditorOptions): MermaidEditorModal {
@@ -28,6 +44,17 @@ export function openEditor(options: BrowserEditorOptions): MermaidEditorModal {
   );
   modal.open();
   return modal;
+}
+
+export function openViewer(options: BrowserViewerOptions): MermaidZoomModal {
+  const locale = options.locale ?? inferLocale();
+  const modal = new MermaidZoomModal({} as App, options.svg, options.zoomStep ?? 0.15, createTranslator(locale));
+  modal.open();
+  return modal;
+}
+
+export function exportImage(options: BrowserExportOptions): Promise<Blob> {
+  return svgToImageBlob(options.svg, options.format, options.scale ?? 2, options.background ?? "#FFFFFF", options.quality ?? 0.92);
 }
 
 export { generateFlowchart, hasOwenMermaidLayout, parseFlowchart, renderVisualDiagram };

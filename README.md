@@ -131,7 +131,7 @@ Reusable browser editor bundle:
 npm run build:browser
 ```
 
-This writes `dist/owen-mermaid-editor.js` and `dist/owen-mermaid-editor.css`. The bundle exposes `window.OwenMermaid.openEditor(...)` and uses a small browser shim for the Obsidian modal, menu, notice, icon, and DOM helper APIs. Keep `LICENSE.md` beside redistributed copies.
+This writes `dist/owen-mermaid-editor.js` and `dist/owen-mermaid-editor.css`. The bundle exposes `window.OwenMermaid.openEditor(...)`, `openViewer(...)`, and `exportImage(...)`, and uses a small browser shim for the Obsidian modal, menu, notice, icon, and DOM helper APIs. Keep `LICENSE.md` beside redistributed copies.
 
 Release validation:
 
