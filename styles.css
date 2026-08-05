@@ -87,7 +87,7 @@
   min-height: 0;
   min-width: 0;
   padding: 0;
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease, transform 150ms ease;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
   width: 30px;
 }
 
@@ -96,8 +96,7 @@
   width: 16px;
 }
 
-.owen-mermaid-icon-button:hover,
-.owen-mermaid-icon-button:focus-visible {
+.owen-mermaid-icon-button:hover {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(240, 249, 255, 0.62));
   border-color: rgba(14, 165, 233, 0.3);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 6px 14px rgba(15, 23, 42, 0.1), 0 0 0 2px rgba(125, 211, 252, 0.14);
@@ -105,13 +104,16 @@
   transform: translateY(-1px);
 }
 
+.owen-mermaid-icon-button:focus,
+.owen-mermaid-icon-button:focus-visible { outline: none; box-shadow: none; }
+
 .owen-mermaid-palette-item:focus-visible,
 .owen-mermaid-action-button:focus-visible,
 .owen-mermaid-danger-button:focus-visible,
 .owen-mermaid-color-target-button:focus-visible,
 .owen-mermaid-color-swatch:focus-visible,
 .owen-mermaid-window-resize-handle:focus-visible {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 2px rgba(125, 211, 252, 0.32), 0 6px 14px rgba(15, 23, 42, 0.08);
+  box-shadow: none;
   outline: none;
 }
 
@@ -169,6 +171,58 @@
   max-width: calc(100vw - 36px);
   padding: 0 !important;
   width: min(1180px, calc(100vw - 36px));
+}
+
+.owen-mermaid-browser-modal::backdrop {
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.owen-mermaid-browser-menu {
+  position: fixed;
+  z-index: 10010;
+  display: grid;
+  width: 220px;
+  gap: 2px;
+  border: 1px solid rgba(203, 213, 225, 0.82);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  padding: 6px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+
+.owen-mermaid-browser-menu button {
+  display: grid;
+  min-height: 36px;
+  align-items: center;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 8px;
+  color: #172033;
+  text-align: left;
+}
+
+.owen-mermaid-browser-menu button:hover { background: rgba(226, 232, 240, 0.72); }
+.owen-mermaid-browser-menu button:focus, .owen-mermaid-browser-menu button:focus-visible { outline: none; box-shadow: none; }
+.owen-mermaid-browser-menu-icon, .owen-mermaid-browser-menu-icon svg { width: 16px; height: 16px; }
+.owen-mermaid-browser-menu-separator { height: 1px; margin: 4px; background: rgba(203, 213, 225, 0.82); }
+
+.owen-mermaid-browser-notice {
+  position: fixed;
+  z-index: 10020;
+  right: 20px;
+  bottom: 20px;
+  max-width: min(360px, calc(100vw - 40px));
+  border: 1px solid rgba(203, 213, 225, 0.82);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  padding: 12px 14px;
+  color: #172033;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  font-size: 12px;
 }
 
 .owen-mermaid-editor-modal.modal {
@@ -1307,12 +1361,12 @@
   text-align: left;
 }
 
-.owen-mermaid-action-palette-item:hover,
-.owen-mermaid-action-palette-item:focus-visible {
+.owen-mermaid-action-palette-item:hover {
   background: rgba(224, 242, 254, 0.72);
   border-color: rgba(14, 165, 233, 0.3);
-  outline: none;
 }
+.owen-mermaid-action-palette-item:focus,
+.owen-mermaid-action-palette-item:focus-visible { outline: none; box-shadow: none; }
 
 .owen-mermaid-confirm-shell h3,
 .owen-mermaid-text-edit-shell h3 {
@@ -1400,10 +1454,10 @@
   width: 100% !important;
 }
 
-.owen-mermaid-settings .setting-item:hover,
-.owen-mermaid-settings .setting-item:focus-within {
+.owen-mermaid-settings .setting-item:hover {
   background: rgba(248, 250, 252, 0.72);
 }
+.owen-mermaid-settings .setting-item:focus-within { outline: none; box-shadow: none; }
 
 .owen-mermaid-settings .setting-item-name {
   color: var(--owen-mermaid-settings-text);
@@ -1615,10 +1669,10 @@
   border-color: rgba(203, 213, 225, 0.18);
 }
 
-.theme-dark .owen-mermaid-settings .setting-item:hover,
-.theme-dark .owen-mermaid-settings .setting-item:focus-within {
+.theme-dark .owen-mermaid-settings .setting-item:hover {
   background: rgba(30, 41, 59, 0.46);
 }
+.theme-dark .owen-mermaid-settings .setting-item:focus-within { outline: none; box-shadow: none; }
 
 .theme-dark .owen-mermaid-settings .setting-item-control input[type="text"],
 .theme-dark .owen-mermaid-settings .setting-item-control select,

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "build:browser": "node esbuild.browser.config.mjs",
     "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
     "test:obsidian": "node scripts/obsidian-smoke.mjs",
     "release:check": "node scripts/release-check.mjs",
