@@ -1,165 +1,182 @@
-![Owen Kit](screenshot/owen-kit.png)
+[![Release](https://img.shields.io/github/v/release/towishy/owen-mermaid?style=flat-square)](https://github.com/towishy/owen-mermaid/releases/latest)
+[![License](https://img.shields.io/github/license/towishy/owen-mermaid?style=flat-square)](LICENSE.md)
+[![Obsidian](https://img.shields.io/badge/Obsidian-Desktop%201.5%2B-7c3aed?style=flat-square&logo=obsidian)](https://obsidian.md)
+[![Mermaid](https://img.shields.io/badge/Mermaid-View%20%2F%20Edit%20%2F%20Export-0d9488?style=flat-square)](#features)
+
+<br>
+<br>
+<br>
+
+![Obsidian Stack — Write, Connect, Publish](screenshot/owen-kit.png)
+
+<br>
+
+## The Owen stack
+
+Pick the tool for the part of the workflow you want to improve. These projects work together, but you do not need to install everything.
+
+| Project | Its role in your workflow |
+| --- | --- |
+| [Owen Graphite](https://github.com/towishy/Owen-Graphite) | Theme, typography, workspace styling, and PDF polish. |
+| [Owen Editor](https://github.com/towishy/owen-editor) | Markdown authoring, editing commands, tables, and report helpers. |
+| [Owen Exporter](https://github.com/towishy/owen-exporter) | SVG-to-image export and Markdown/HTML handoff workflows. |
+| **[Owen Mermaid](https://github.com/towishy/owen-mermaid)** | Mermaid viewing, visual editing, and image export. |
+| [Owen Wiki](https://github.com/towishy/owen-wiki) | A repository template for LLM-assisted knowledge operations. |
+
+<br>
 
 # Owen Mermaid
 
-> [!NOTE]
-> **Language:** Owen Mermaid follows Obsidian by default: Korean uses Korean, while every other locale uses English. Override it from **Settings → Owen Mermaid → Interface → Language**.
+**View, visually edit, and export Mermaid diagrams inside Obsidian.**
 
-Owen Mermaid is an Obsidian plugin for viewing and editing Mermaid SVG images inside your notes.
+Keep Mermaid source editable while using inline controls, a full-screen viewer, and a visual canvas for supported diagram structures.
 
-- Detects Mermaid SVG diagrams and adds an inline glass toolbar.
-- Adds a Mermaid SVG right-click menu for zoom view, editing, PNG download, and JPG download.
-- Provides a full-screen pan and zoom viewer.
-- Includes a flowchart-focused visual editor for creating shapes, dragging nodes, editing text, creating/editing/deleting connectors, and writing changes back to the original Mermaid code block.
-- Supports PNG/JPG download settings for save location, output folder, filename template, quality, background, and scale.
-- Exports all rendered Mermaid SVG diagrams in the active note to a vault folder with an optional Markdown batch report.
-- Provides a settings screen with section headers like the screenshot design.
-- Supports mouse drag-and-drop Mermaid editing directly on the canvas, similar to working in Visio.
-- Applies a liquid glass design tone inspired by Owen Graphite and Owen Editor.
+**Desktop Obsidian plugin · Flowchart-focused editor · Source preservation · PNG/JPG export**
 
-## Screenshots
+[Quick start](#quick-start) · [Features](#features) · [Preview](#preview) · [Documentation](#documentation)
 
-![Owen Mermaid menu](screenshot/menu.png)
+<br>
 
-![Owen Mermaid zoom viewer](screenshot/zoom.png)
+## Preview
 
-![Owen Mermaid visual editor](screenshot/editor.png)
+![Mermaid diagram context menu](screenshot/menu.png)
+![Full-screen zoom viewer](screenshot/zoom.png)
+![Mermaid visual editor](screenshot/editor.png)
 
-![Owen Mermaid visual editor 1](screenshot/editor-1.png)
+<details>
+<summary>More visual editor examples</summary>
 
-![Owen Mermaid visual editor 2](screenshot/editor-2.png)
+![Visual editor example 1](screenshot/editor-1.png)
+![Visual editor example 2](screenshot/editor-2.png)
+![Visual editor example 3](screenshot/editor-3.png)
+![Visual editor example 4](screenshot/editor-4.png)
+![Visual editor example 5](screenshot/editor-5.png)
+![Visual editor example 6](screenshot/editor-6.png)
 
-![Owen Mermaid visual editor 3](screenshot/editor-3.png)
+</details>
 
-![Owen Mermaid visual editor 4](screenshot/editor-4.png)
-
-![Owen Mermaid visual editor 5](screenshot/editor-5.png)
-
-![Owen Mermaid visual editor 6](screenshot/editor-6.png)
+<br>
 
 ## Features
 
-When adding new functionality, add a new row to this table so the current feature surface stays easy to scan.
+| For your workflow | What Owen Mermaid brings |
+| --- | --- |
+| Inspect diagrams | Inline glass toolbar, right-click actions, and a full-screen pan/zoom viewer with reset and dragging. |
+| Build flowcharts | Create, drag, resize, duplicate, and delete nodes; click or drag shape tools onto the canvas. |
+| Edit connections | Create, reconnect, reverse, style, label, and delete connectors/free lines; curve/straight/elbow routes, draggable labels, and self connectors. |
+| Arrange the canvas | Multi-selection, group movement/deletion, alignment/distribution, snap controls with 10/20/40 spacing, background panning, fit, center-selection, and minimap. |
+| Keep edits controlled | Undo/redo, source editing, source diff preview, unsaved-change prompts, and exact fenced-block targeting that rejects ambiguous stale matches. |
+| Preserve layout | `%% owen-mermaid` metadata for node size/position, free lines, routes, label offsets, and colors. |
+| Handle labels | Wrapping, scaling, and truncation for long or explicit multi-line node labels. |
+| Export images | Single PNG/JPG download or all rendered Mermaid SVGs in the note, with scale, quality, background, destination, filename templates, and optional batch reports. |
+| Work across syntax | Flowchart-focused editing plus basic state/sequence structures; unsupported lines are preserved when the parser can safely retain them. |
 
-| Area | Feature | Notes |
+When adding functionality, keep the feature table and compatibility matrix current.
+
+<br>
+
+## Quick start
+
+1. Open the [latest release](https://github.com/towishy/owen-mermaid/releases/latest).
+2. Download **`main.js`**, **`manifest.json`**, and **`styles.css`** from **Assets**, not Source code (zip).
+3. Place them directly inside `<YourVault>/.obsidian/plugins/owen-mermaid/`.
+4. Reload Obsidian and enable **Owen Mermaid** under **Community plugins**.
+5. Create a Mermaid code block and view the note in Reading view or Live Preview.
+
+<br>
+
+## Everyday workflow
+
+1. **Inspect.** Hover a rendered Mermaid SVG or right-click it to open the viewer, edit, or download.
+2. **Edit.** Use the canvas for supported shapes and connectors, or switch to the source preview for syntax-level changes.
+3. **Review.** Check the diff and preserved unsupported lines before applying changes to the original fence.
+4. **Export.** Save a single image or run **Export Mermaid diagrams in active note** for a batch.
+
+<details>
+<summary>Editor keyboard shortcuts</summary>
+
+- **Ctrl/Cmd + Z:** undo.
+- **Ctrl/Cmd + Y** or **Ctrl/Cmd + Shift + Z:** redo.
+- **Enter:** edit selected node, connector, or free-line text.
+- **Delete/Backspace:** delete selected items.
+- **Arrow keys:** move the selected node/free line; **Shift + arrows** uses snap spacing.
+- **Shift/Ctrl/Cmd + click:** modify the node multi-selection.
+- **Escape:** cancel placement or connector tools.
+
+</details>
+
+Batch export uses the configured format, folder, filename, scale, background, and quality. Numeric suffixes avoid overwriting existing files. Reports can be disabled, written only for failures, or written for every batch.
+
+<br>
+
+## Compatibility and boundaries
+
+Requires **desktop Obsidian 1.5.0 or later**. The interface follows Obsidian's locale, with explicit English/Korean overrides under **Settings → Owen Mermaid → Interface → Language**.
+
+| Syntax area | Visual editing | Preservation and limits |
 | --- | --- | --- |
-| Rendered diagrams | Inline glass toolbar | Adds zoom, edit, and image download controls to rendered Mermaid SVG blocks. |
-| Rendered diagrams | Context menu actions | Right-click a rendered Mermaid SVG to open zoom, edit, PNG download, or JPG download actions. |
-| Zoom viewer | Full-screen pan and zoom | Opens rendered Mermaid SVGs in a large viewer with zoom controls, reset, and drag panning. |
-| Visual editor | Flowchart editing | Creates, edits, drags, resizes, duplicates, and deletes common flowchart nodes. |
-| Visual editor | Basic state and sequence editing | Parses and edits basic `stateDiagram` and `sequenceDiagram` participants, states, and messages. |
-| Visual editor | Drag-and-drop creation | Supports clicking or dragging shape tools onto the canvas. |
-| Visual editor | Long canvas panning | Scrolls oversized diagrams by dragging the editor background horizontally or vertically. |
-| Visual editor | Fitted node labels | Wraps, scales, and truncates long or explicit multi-line labels to keep text inside node bounds. |
-| Visual editor | Connector editing | Creates, reconnects, reverses, styles, deletes, and labels connectors and free lines. |
-| Visual editor | Connector route modes | Supports curve, straight, and elbow connector routes stored in Owen Mermaid metadata. |
-| Visual editor | Draggable connector labels | Allows connector and free-line labels to be repositioned visually and preserved in metadata. |
-| Visual editor | Self connectors | Adds self-loop connectors from the node context menu. |
-| Visual editor | Multi-select nodes | Supports modifier-click node selection, group movement, group deletion, and selection-aware inspector controls. |
-| Visual editor | Alignment and distribution | Aligns selected nodes left/center/right/top/middle/bottom and distributes selected nodes horizontally or vertically. |
-| Visual editor | View navigation | Provides editor zoom, reset, fit-to-screen, center-selection, and a minimap navigator. |
-| Visual editor | Snap controls | Supports snap on/off and configurable 10/20/40 grid spacing. |
-| Visual editor | Undo and redo | Tracks editor changes across drag, resize, text, source, layout, connector, and group operations. |
-| Visual editor | Source preview and editing | Shows Mermaid source, supports explicit source editing, and applies source changes back into the visual model. |
-| Visual editor | Unsaved-change protection | Prompts before closing the editor when unapplied visual/source changes exist. |
-| Visual editor | Source diff preview | Shows a compact Mermaid source diff before applying changes. |
-| Visual editor | Preserved unsupported lines | Displays preserved unsupported Mermaid lines such as styles, classes, click handlers, link styles, and subgraph blocks. |
-| Mermaid source | Layout metadata | Persists node size/position, free lines, connector routes, and label offsets in `%% owen-mermaid` metadata. |
-| Mermaid source | Exact block targeting | Re-resolves the clicked Mermaid fence and rejects ambiguous stale matches instead of editing another diagram. |
-| Export | Single image download | Downloads rendered Mermaid SVGs as PNG or JPG with configured scale, background, and quality. |
-| Export | Batch export | Exports every rendered Mermaid SVG in the active note to a vault folder. |
-| Export | Batch reports | Optionally writes a Markdown report for all batch exports or failures only. |
-| Settings | Export configuration | Configures format, output folder, filename template, scale, quality, and background. |
-| UI | Liquid glass design | Uses an Owen Graphite inspired liquid glass style for toolbars, settings, viewer, and editor surfaces. |
+| `flowchart` / `graph` | Yes | `TD`, `LR`, `BT`, `RL`; unsupported/missing directions use the configured direction. |
+| Nodes | Yes | Rectangle, rounded, stadium, diamond, and circle; common quoted/unquoted labels. |
+| Connectors | Yes | Lines, arrows, dotted/thick styles, labels, self connectors, and Owen route/label metadata. |
+| Flowchart styles | Partial | `style`/`linkStyle` colors are parsed; `classDef`, `class`, and `click` lines are preserved. |
+| Subgraphs | No | Preserved as source, not expanded into editable canvas items. |
+| Init directives | No | `%%{init: ...}%%` remains before the regenerated header. |
+| `stateDiagram` / `stateDiagram-v2` | Basic | Named states, start/end markers, basic transitions, labels, and Owen color classes. |
+| `sequenceDiagram` | Basic | Participants, actors, aliases, and basic `->`, `-->`, `->>`, `-->>` messages. |
+| Owen layout metadata | Yes | Visual positions, sizes, routes, label offsets, colors, and free lines. |
+| Other Mermaid features | Source only | Best-effort preservation; inspect the source preview before applying. |
 
-## Usage
+Visual editing is deliberately narrower than Mermaid's complete language. Preserved source is not a promise that every construct round-trips as an editable canvas item.
 
-1. Create a Mermaid code block in an Obsidian note.
-2. View the note in Reading view or Live Preview.
-3. Hover a rendered Mermaid diagram to use the inline buttons.
-4. Right-click the Mermaid SVG to open zoom, edit, or download actions.
-5. Run **Export Mermaid diagrams in active note** from the command palette to batch-export every rendered Mermaid SVG in the current note.
+<br>
 
-The visual editor currently targets common `flowchart`/`graph` Mermaid syntax: nodes, basic shapes, labels, and connectors. It also handles basic `stateDiagram` and `sequenceDiagram` structures. Mermaid init directives are preserved before the regenerated header, and unsupported lines or subgraph blocks are preserved in the generated output section when possible.
+## Documentation
 
-## Mermaid Compatibility
+| Start here | What you will find |
+| --- | --- |
+| [Latest release](https://github.com/towishy/owen-mermaid/releases/latest) | Built plugin files. |
+| [Plugin manifest](manifest.json) | Plugin ID and host compatibility. |
+| [Package scripts](package.json) | Build, tests, release checks, and Obsidian smoke tests. |
+| [Issue tracker](https://github.com/towishy/owen-mermaid/issues) | Reproduction reports and feature requests. |
 
-Owen Mermaid keeps Mermaid source editable first and visual editing focused. Use this matrix to decide what should round-trip visually, what is preserved as source, and what may need direct source editing.
+<br>
 
-| Syntax area | Visual editing | Source preservation | Notes |
-| --- | --- | --- | --- |
-| `flowchart` / `graph` headers | Yes | Yes | Supports `TD`, `LR`, `BT`, and `RL`; unsupported or missing headers fall back to the configured editor direction. |
-| Flowchart nodes | Yes | Yes | Supports rectangle, rounded, stadium, diamond, and circle shapes with common quoted or unquoted labels. |
-| Flowchart connectors | Yes | Yes | Supports line, arrow, dotted, thick, labels, self connectors, and Owen Mermaid route/label metadata. |
-| Flowchart styles | Partial | Yes | `style` and `linkStyle` colors are parsed for editable items; `classDef`, `class`, and `click` lines are preserved. |
-| Subgraphs | No | Yes | Subgraph blocks are preserved as source and are not expanded into editable canvas items. |
-| Mermaid init directives | No | Yes | `%%{init: ...}%%` lines stay before the regenerated diagram header. |
-| `stateDiagram` / `stateDiagram-v2` | Basic | Yes | Supports named states, start/end markers, basic transitions, labels, and Owen Mermaid color classes. |
-| `sequenceDiagram` | Basic | Yes | Supports participants, actors, aliases, and basic `->`, `-->`, `->>`, and `-->>` messages. |
-| Owen layout metadata | Yes | Yes | `%% owen-mermaid` metadata stores visual positions, sizes, routes, label offsets, colors, and free lines. |
-| Other Mermaid features | Source only | Best effort | Unsupported lines remain in the source preview/preserved section when the parser can safely keep them. |
-
-Keyboard shortcuts inside the editor:
-
-- `Ctrl`/`Cmd` + `Z`: undo the last editor change.
-- `Ctrl`/`Cmd` + `Y` or `Ctrl`/`Cmd` + `Shift` + `Z`: redo the last undone change.
-- `Enter`: edit the selected node, connector, or free line text.
-- `Delete`/`Backspace`: delete the selected item.
-- Arrow keys: move the selected node or free line.
-- `Shift` + arrow keys: move by the grid snap size.
-- `Shift`/`Ctrl`/`Cmd` + click: add or remove nodes from the current multi-selection.
-- `Escape`: cancel the active placement or connector tool.
-
-Batch export notes:
-
-- Batch export uses the configured image format, filename template, output folder, scale, background, and quality.
-- Files are written to the vault output folder and automatically receive a numeric suffix instead of overwriting existing files.
-- The batch report setting controls whether a Markdown report is written never, only on failures, or every time.
-
-## Development
+## Contributing and license
 
 ```bash
 npm install
 npm run dev
 npm run build
 npm test
-```
-
-Reusable browser editor bundle:
-
-```bash
-npm run build:browser
-```
-
-This writes `dist/owen-mermaid-editor.js` and `dist/owen-mermaid-editor.css`. The bundle exposes `window.OwenMermaid.openEditor(...)`, `openViewer(...)`, and `exportImage(...)`, and uses a small browser shim for the Obsidian modal, menu, notice, icon, and DOM helper APIs. Keep `LICENSE.md` beside redistributed copies.
-
-Release validation:
-
-```bash
 npm run release:check
 ```
 
-Optional Obsidian smoke test:
+For the optional Obsidian smoke test, launch Obsidian with `--remote-debugging-port=9222`, then run `npm run test:obsidian`. It connects over CDP, verifies plugin commands and SVG controls, opens the editor, and removes its temporary note. Set `OWEN_MERMAID_SMOKE_SKIP_UI=1` for command-registration-only checks.
 
-```bash
-Obsidian --remote-debugging-port=9222
-npm run test:obsidian
-```
+Community releases provide `main.js`, `manifest.json`, and `styles.css`.
 
-The smoke test connects to the running Obsidian app over CDP, confirms that Owen Mermaid is enabled, checks command registration, creates a temporary Mermaid note, verifies the rendered SVG toolbar, opens the visual editor, and then removes the temporary note. Set `OWEN_MERMAID_SMOKE_SKIP_UI=1` to run only the command-registration checks.
+Remove private note contents from source snippets and screenshots in bug reports.
 
-Manual install for testing:
+**License:** MIT — see [LICENSE.md](LICENSE.md).
 
-```text
-<vault>/.obsidian/plugins/owen-mermaid/
-```
+---
 
-Copy `main.js`, `manifest.json`, and `styles.css` into that folder, reload Obsidian, and enable **Owen Mermaid** from Community plugins.
+<br>
 
-## Release Files
+## Support
 
-Community release assets should include:
+<p align="center">
+  <a href="https://mdbox.sarang.day/">
+    <img src="screenshot/workspace-card.svg" alt="My Latest Markdown Editor &amp; Workspace — mdbox.sarang.day. Open the editor and workspace." width="960">
+  </a>
+</p>
 
-- `manifest.json`
-- `main.js`
-- `styles.css`
+<br>
+
+<p align="center">
+  <a href="https://github.com/sponsors/towishy">
+    <img src="screenshot/support-sponsor.svg" alt="Support Owen Mermaid with a coffee. A small contribution helps keep the plugin improving. Support on GitHub Sponsors." width="960">
+  </a>
+</p>
+
+Owen Mermaid is free and open source. If it helps your diagram editing or image export workflow, you can support maintenance through [GitHub Sponsors](https://github.com/sponsors/towishy).
