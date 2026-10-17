@@ -117,7 +117,7 @@ export default class OwenMermaidPlugin extends Plugin {
       const source = code.textContent ?? "";
       if (!hasOwenMermaidLayout(source)) continue;
 
-      const block = el.ownerDocument.createElement("div");
+      const block = el.ownerDocument.createDocumentFragment().createDiv();
       block.classList.add("block-language-mermaid", "owen-mermaid-block");
       block.setAttribute(MARKER_ATTR, ENHANCEMENT_VERSION);
       ensureLiquidGlassFilter(block.ownerDocument);
@@ -295,16 +295,16 @@ export default class OwenMermaidPlugin extends Plugin {
     if (this.observedMarkdownContainers.has(container)) return;
     this.observedMarkdownContainers.add(container);
 
-    const observer = new MutationObserver((mutations) => {
+    const observer = new container.win.window.MutationObserver((mutations) => {
       const hasUnprocessedMermaid = mutations.some((mutation) => {
         if (mutation.type === "attributes") {
-          return mutation.target instanceof HTMLElement
+          return mutation.target.instanceOf(HTMLElement)
             && mutation.target.matches(MERMAID_SELECTOR)
             && mutation.target.getAttribute(MARKER_ATTR) !== ENHANCEMENT_VERSION;
         }
 
         return Array.from(mutation.addedNodes).some((node) => {
-          if (!(node instanceof HTMLElement)) return false;
+          if (!node.instanceOf(HTMLElement)) return false;
           if (node.matches(MERMAID_SELECTOR) && node.getAttribute(MARKER_ATTR) !== ENHANCEMENT_VERSION) return true;
           return Array.from(node.querySelectorAll<HTMLElement>(MERMAID_SELECTOR))
             .some((block) => block.getAttribute(MARKER_ATTR) !== ENHANCEMENT_VERSION);

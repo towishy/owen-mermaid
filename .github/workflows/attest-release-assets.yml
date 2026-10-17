@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to attest
+        description: Release tag to build, upload, and attest
         required: true
-        default: 0.2.0
+        type: string
 
 permissions:
-  contents: read
+  contents: write
   attestations: write
   id-token: write
 
@@ -33,11 +33,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: |
+          node -e "if (require('./manifest.json').version !== process.env.RELEASE_TAG) throw new Error('Release tag must match manifest version')"
+
       - name: Run tests
         run: npm test
 
       - name: Build release assets
         run: npm run build
+
+      - name: Build standalone browser editor
+        run: npm run build:browser
+
+      - name: Upload the exact assets being attested
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" main.js manifest.json styles.css --clobber
 
       - name: Attest manifest.json build provenance
         uses: actions/attest-build-provenance@v2

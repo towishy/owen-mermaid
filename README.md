@@ -113,6 +113,10 @@ Batch export uses the configured format, folder, filename, scale, background, an
 
 Requires **desktop Obsidian 1.5.0 or later**. The interface follows Obsidian's locale, with explicit English/Korean overrides under **Settings → Owen Mermaid → Interface → Language**.
 
+Individual settings participate in Obsidian's settings search on 1.13.0 and later; older supported hosts retain the existing grouped controls. The standalone browser editor uses a small native-DOM compatibility layer rather than requiring the Obsidian runtime.
+
+The community filesystem-access notice is expected for saving images to a PC folder selected in the save dialog. Vault exports continue to use Obsidian's vault adapter. Thin scrollbars have a WebKit fallback; the reduced-motion rule deliberately keeps its priority so hover states cannot restore animation.
+
 | Syntax area | Visual editing | Preservation and limits |
 | --- | --- | --- |
 | `flowchart` / `graph` | Yes | `TD`, `LR`, `BT`, `RL`; unsupported/missing directions use the configured direction. |
@@ -143,6 +147,8 @@ Visual editing is deliberately narrower than Mermaid's complete language. Preser
 
 ## Contributing and license
 
+After a successful release workflow, only the latest published release and its matching tag are retained. Older release downloads and tag-based rollback links are removed; source commit history is preserved. The retention workflow also supports a guarded dry run.
+
 ```bash
 npm install
 npm run dev
@@ -153,7 +159,7 @@ npm run release:check
 
 For the optional Obsidian smoke test, launch Obsidian with `--remote-debugging-port=9222`, then run `npm run test:obsidian`. It connects over CDP, verifies plugin commands and SVG controls, opens the editor, and removes its temporary note. Set `OWEN_MERMAID_SMOKE_SKIP_UI=1` for command-registration-only checks.
 
-Community releases provide `main.js`, `manifest.json`, and `styles.css`.
+Community releases provide `main.js`, `manifest.json`, and `styles.css`. The release workflow builds and uploads these exact assets before generating their provenance attestations.
 
 Remove private note contents from source snippets and screenshots in bug reports.
 

@@ -1,13 +1,13 @@
 {
   "name": "owen-mermaid",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "Zoom, edit, and export Mermaid SVG diagrams.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
     "build:browser": "node esbuild.browser.config.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js tests/settings-api.test.mjs",
     "test:obsidian": "node scripts/obsidian-smoke.mjs",
     "release:check": "node scripts/release-check.mjs",
     "version": "node version-bump.mjs && git add manifest.json versions.json"

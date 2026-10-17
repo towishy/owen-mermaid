@@ -31,3 +31,6 @@ jobs:
 
       - name: Build plugin
         run: npm run build
+
+      - name: Build standalone browser editor
+        run: npm run build:browser

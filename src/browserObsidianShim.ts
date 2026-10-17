@@ -6,6 +6,12 @@ type CreateOptions = {
 };
 
 declare global {
+  interface DocumentFragment {
+    createDiv(options?: CreateOptions): HTMLDivElement;
+    createEl<K extends keyof HTMLElementTagNameMap>(tag: K, options?: CreateOptions): HTMLElementTagNameMap[K];
+    createSpan(options?: CreateOptions): HTMLSpanElement;
+    createSvg<K extends keyof SVGElementTagNameMap>(tag: K, options?: CreateOptions): SVGElementTagNameMap[K];
+  }
   interface Element {
     addClass(...classes: string[]): void;
     createDiv(options?: CreateOptions): HTMLDivElement;
@@ -32,13 +38,12 @@ export class Modal {
 
   constructor(app: App) {
     this.app = app;
-    this.modalEl = document.createElement("dialog");
+    this.modalEl = document.createDocumentFragment().createEl("dialog");
     this.modalEl.className = "modal owen-mermaid-browser-modal";
     this.modalEl.setAttribute("aria-modal", "true");
     this.containerEl = this.modalEl;
-    this.contentEl = document.createElement("div");
+    this.contentEl = this.modalEl.createDiv();
     this.contentEl.className = "modal-content";
-    this.modalEl.append(this.contentEl);
     this.modalEl.addEventListener("cancel", (event) => {
       event.preventDefault();
       this.close();
@@ -79,13 +84,12 @@ class BrowserMenuItem {
   private action: () => void = () => {};
 
   constructor(onSelect: () => void) {
-    this.element = document.createElement("button");
+    this.element = document.createDocumentFragment().createEl("button");
     this.element.type = "button";
     this.element.setAttribute("role", "menuitem");
-    this.iconElement = document.createElement("span");
+    this.iconElement = this.element.createSpan();
     this.iconElement.className = "owen-mermaid-browser-menu-icon";
-    this.titleElement = document.createElement("span");
-    this.element.append(this.iconElement, this.titleElement);
+    this.titleElement = this.element.createSpan();
     this.element.addEventListener("click", () => {
       onSelect();
       this.action();
@@ -109,7 +113,7 @@ class BrowserMenuItem {
 }
 
 export class Menu {
-  private readonly element = document.createElement("div");
+  private readonly element = document.createDocumentFragment().createDiv();
   private readonly outsideHandler = (event: PointerEvent) => {
     if (!this.element.contains(event.target as Node)) this.hide();
   };
@@ -127,10 +131,9 @@ export class Menu {
   }
 
   addSeparator(): this {
-    const separator = document.createElement("div");
+    const separator = this.element.createDiv();
     separator.className = "owen-mermaid-browser-menu-separator";
     separator.setAttribute("role", "separator");
-    this.element.append(separator);
     return this;
   }
 
@@ -150,21 +153,19 @@ export class Menu {
 
 export class Notice {
   constructor(message: string) {
-    const element = document.createElement("div");
+    const element = document.body.createDiv();
     element.className = "owen-mermaid-browser-notice";
     element.setAttribute("role", "status");
     element.textContent = message;
-    document.body.append(element);
     window.setTimeout(() => element.remove(), 2400);
   }
 }
 
 export function setIcon(element: HTMLElement, icon: string): void {
   element.replaceChildren();
-  const placeholder = document.createElement("i");
+  const placeholder = element.createEl("i");
   placeholder.setAttribute("data-lucide", icon);
   placeholder.setAttribute("aria-hidden", "true");
-  element.append(placeholder);
   queueMicrotask(() => {
     const lucide = (window as Window & { lucide?: { createIcons(options?: unknown): void; icons?: unknown } }).lucide;
     lucide?.createIcons({ attrs: { "aria-hidden": "true", "stroke-width": "1.75" }, icons: lucide.icons });
@@ -172,30 +173,34 @@ export function setIcon(element: HTMLElement, icon: string): void {
 }
 
 function installDomHelpers(): void {
+  for (const prototype of [Element.prototype, DocumentFragment.prototype]) installCreateHelpers(prototype);
   const prototype = Element.prototype as Element & Record<string, unknown>;
+  if (typeof prototype.empty !== "function") prototype.empty = function empty(this: Element) { this.replaceChildren(); };
+  if (typeof prototype.addClass !== "function") prototype.addClass = function addClass(this: Element, ...classes: string[]) { this.classList.add(...classes.flatMap((value) => value.split(/\s+/)).filter(Boolean)); };
+  if (typeof prototype.removeClass !== "function") prototype.removeClass = function removeClass(this: Element, ...classes: string[]) { this.classList.remove(...classes.flatMap((value) => value.split(/\s+/)).filter(Boolean)); };
+  if (typeof prototype.toggleClass !== "function") prototype.toggleClass = function toggleClass(this: Element, className: string, force?: boolean) { this.classList.toggle(className, force); };
+  if (typeof prototype.setText !== "function") prototype.setText = function setText(this: Element, value: string) { this.textContent = value; };
+}
+
+function installCreateHelpers(prototype: Element | DocumentFragment): void {
   if (typeof prototype.createEl !== "function") {
-    prototype.createEl = function createEl<K extends keyof HTMLElementTagNameMap>(this: Element, tag: K, options: CreateOptions = {}): HTMLElementTagNameMap[K] {
+    prototype.createEl = function createEl<K extends keyof HTMLElementTagNameMap>(this: Element | DocumentFragment, tag: K, options: CreateOptions = {}): HTMLElementTagNameMap[K] {
       const element = this.ownerDocument.createElement(tag);
       applyOptions(element, options);
       this.append(element);
       return element;
     };
   }
-  if (typeof prototype.createDiv !== "function") prototype.createDiv = function createDiv(this: Element, options: CreateOptions = {}) { return this.createEl("div", options); };
-  if (typeof prototype.createSpan !== "function") prototype.createSpan = function createSpan(this: Element, options: CreateOptions = {}) { return this.createEl("span", options); };
+  if (typeof prototype.createDiv !== "function") prototype.createDiv = function createDiv(this: Element | DocumentFragment, options: CreateOptions = {}) { return this.createEl("div", options); };
+  if (typeof prototype.createSpan !== "function") prototype.createSpan = function createSpan(this: Element | DocumentFragment, options: CreateOptions = {}) { return this.createEl("span", options); };
   if (typeof prototype.createSvg !== "function") {
-    prototype.createSvg = function createSvg<K extends keyof SVGElementTagNameMap>(this: Element, tag: K, options: CreateOptions = {}): SVGElementTagNameMap[K] {
+    prototype.createSvg = function createSvg<K extends keyof SVGElementTagNameMap>(this: Element | DocumentFragment, tag: K, options: CreateOptions = {}): SVGElementTagNameMap[K] {
       const element = this.ownerDocument.createElementNS("http://www.w3.org/2000/svg", tag);
       applyOptions(element, options);
       this.append(element);
       return element;
     };
   }
-  if (typeof prototype.empty !== "function") prototype.empty = function empty(this: Element) { this.replaceChildren(); };
-  if (typeof prototype.addClass !== "function") prototype.addClass = function addClass(this: Element, ...classes: string[]) { this.classList.add(...classes.flatMap((value) => value.split(/\s+/)).filter(Boolean)); };
-  if (typeof prototype.removeClass !== "function") prototype.removeClass = function removeClass(this: Element, ...classes: string[]) { this.classList.remove(...classes.flatMap((value) => value.split(/\s+/)).filter(Boolean)); };
-  if (typeof prototype.toggleClass !== "function") prototype.toggleClass = function toggleClass(this: Element, className: string, force?: boolean) { this.classList.toggle(className, force); };
-  if (typeof prototype.setText !== "function") prototype.setText = function setText(this: Element, value: string) { this.textContent = value; };
 }
 
 function applyOptions(element: Element, options: CreateOptions): void {

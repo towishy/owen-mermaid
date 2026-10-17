@@ -9,9 +9,10 @@ export async function svgToImageBlob(svg: SVGSVGElement, format: ExportFormat, s
   const win = svg.ownerDocument.defaultView ?? window;
   const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
   const imageUrl = win.URL.createObjectURL(svgBlob);
+  const elements = svg.ownerDocument.createDocumentFragment();
 
   return new Promise((resolve, reject) => {
-    const image = new Image();
+    const image = elements.createEl("img");
     image.onload = () => {
       win.URL.revokeObjectURL(imageUrl);
       const dimensions = getSvgDimensions(preparedSvg, image);
@@ -24,7 +25,7 @@ export async function svgToImageBlob(svg: SVGSVGElement, format: ExportFormat, s
         canvasHeight = Math.floor(canvasHeight * downscale);
       }
 
-      const canvas = svg.ownerDocument.createElement("canvas");
+      const canvas = elements.createEl("canvas");
       canvas.width = canvasWidth;
       canvas.height = canvasHeight;
       const context = canvas.getContext("2d");

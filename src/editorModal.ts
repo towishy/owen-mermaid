@@ -338,7 +338,7 @@ export class MermaidEditorModal extends Modal {
     const shell = this.contentEl.createDiv({ cls: "owen-mermaid-editor-shell" });
     this.createModalResizeHandle(shell);
     const header = shell.createDiv({ cls: "owen-mermaid-editor-header" });
-    header.createEl("div", { cls: "owen-mermaid-editor-title", text: "Owen Mermaid" });
+    header.createDiv({ cls: "owen-mermaid-editor-title", text: "Owen Mermaid" });
 
     const actions = header.createDiv({ cls: "owen-mermaid-editor-actions" });
     this.createButton(actions, "undo-2", this.t("editor.undo"), () => this.undoHistory());
@@ -513,7 +513,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderShapeToolGroup(parent: HTMLElement): void {
     const shapesGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    shapesGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.shapes") });
+    shapesGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.shapes") });
     const shapeButtons = shapesGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.shapeTools()) {
       const button = shapeButtons.createEl("button", {
@@ -537,7 +537,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderNodeShapeGroup(parent: HTMLElement): void {
     const shapeGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    shapeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.shape") });
+    shapeGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.shape") });
     const shapeButtons = shapeGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.shapeTools()) {
       const button = shapeButtons.createEl("button", {
@@ -557,7 +557,7 @@ export class MermaidEditorModal extends Modal {
     if (this.diagram.nodes.length === 0) return;
 
     const connectorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    connectorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.connect") });
+    connectorGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.connect") });
     const connectorButtons = connectorGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.connectorTools(false)) {
       const button = connectorButtons.createEl("button", {
@@ -575,7 +575,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderConnectorStyleGroup(parent: HTMLElement): void {
     const group = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.line") });
+    group.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.line") });
     const items = group.createDiv({ cls: "owen-mermaid-ribbon-items" });
     for (const item of this.connectorTools(this.editorSelection?.kind === "freeLine")) {
       const button = items.createEl("button", {
@@ -595,14 +595,14 @@ export class MermaidEditorModal extends Modal {
     if (this.availableColorTargets().length === 0) return;
 
     const colorGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group owen-mermaid-color-group" });
-    colorGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.color") });
+    colorGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.color") });
     this.renderColorRibbon(colorGroup);
   }
 
   private renderStylePresetGroup(parent: HTMLElement): void {
     if (!this.editorSelection) return;
     const group = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    group.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.preset") });
+    group.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.preset") });
     const items = group.createDiv({ cls: "owen-mermaid-ribbon-items" });
     const presets = this.editorSelection.kind === "node"
       ? [
@@ -620,7 +620,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderDiagramGroup(parent: HTMLElement): void {
     const diagramGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    diagramGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.diagram") });
+    diagramGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.diagram") });
     const direction = diagramGroup.createEl("select", { cls: "owen-mermaid-select owen-mermaid-direction-select" });
     for (const value of ["LR", "TD", "RL", "BT"] as FlowDirection[]) {
       direction.createEl("option", { text: value, value });
@@ -634,7 +634,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderArrangeGroup(parent: HTMLElement): void {
     const arrangeGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    arrangeGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.arrange") });
+    arrangeGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.arrange") });
     const arrangeButtons = arrangeGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     this.createRibbonButton(arrangeButtons, "align-start-horizontal", this.t("editor.left"), () => this.alignSelectedNodes("left"));
     this.createRibbonButton(arrangeButtons, "align-center-horizontal", this.t("editor.center"), () => this.alignSelectedNodes("centerX"));
@@ -648,7 +648,7 @@ export class MermaidEditorModal extends Modal {
 
   private renderViewRibbonGroup(parent: HTMLElement): void {
     const viewGroup = parent.createDiv({ cls: "owen-mermaid-ribbon-group" });
-    viewGroup.createEl("div", { cls: "owen-mermaid-ribbon-label", text: this.t("editor.view") });
+    viewGroup.createDiv({ cls: "owen-mermaid-ribbon-label", text: this.t("editor.view") });
     const viewButtons = viewGroup.createDiv({ cls: "owen-mermaid-ribbon-items" });
     this.createRibbonButton(viewButtons, "zoom-out", this.t("zoom.out"), () => this.setEditorZoom(this.editorZoom - EDITOR_ZOOM_STEP));
     this.zoomLabel = viewButtons.createSpan({ cls: "owen-mermaid-ribbon-zoom-label", text: `${Math.round(this.editorZoom * 100)}%` });
@@ -1462,7 +1462,7 @@ export class MermaidEditorModal extends Modal {
     if (!this.inspector) return;
     this.inspector.parentElement?.setAttribute("data-inspector-tab", this.inspectorTab);
     this.inspector.empty();
-    this.inspector.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.inspector") });
+    this.inspector.createDiv({ cls: "owen-mermaid-section-title", text: this.t("editor.inspector") });
     this.renderInspectorTabs(this.inspector);
     const panel = this.inspector.createDiv({
       cls: "owen-mermaid-inspector-panel",
@@ -1568,14 +1568,14 @@ export class MermaidEditorModal extends Modal {
   private renderChangeSummary(parent: HTMLElement): void {
     const items = this.createChangeSummary();
     if (items.length === 0) return;
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.summary") });
+    parent.createDiv({ cls: "owen-mermaid-section-title", text: this.t("editor.summary") });
     const list = parent.createEl("ul", { cls: "owen-mermaid-change-summary" });
     for (const item of items) list.createEl("li", { text: item });
   }
 
   private renderUnsupportedSummary(parent: HTMLElement): void {
     if (this.diagram.unsupportedLines.length === 0) return;
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.preserved") });
+    parent.createDiv({ cls: "owen-mermaid-section-title", text: this.t("editor.preserved") });
     const subgraphs = this.getSubgraphTitles();
     if (subgraphs.length > 0) {
       const list = parent.createEl("ul", { cls: "owen-mermaid-preserved-groups" });
@@ -1622,10 +1622,10 @@ export class MermaidEditorModal extends Modal {
   private renderSourceDiff(parent: HTMLElement): void {
     const diff = this.createSourceDiffLines();
     if (diff.length === 0) return;
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.changes") });
+    parent.createDiv({ cls: "owen-mermaid-section-title", text: this.t("editor.changes") });
     this.diffPreview = parent.createEl("pre", { cls: "owen-mermaid-diff-preview" });
     for (const line of diff) {
-      this.diffPreview.createEl("span", { cls: `owen-mermaid-diff-line is-${line.kind}`, text: line.text });
+      this.diffPreview.createSpan({ cls: `owen-mermaid-diff-line is-${line.kind}`, text: line.text });
     }
   }
 
@@ -1775,7 +1775,7 @@ export class MermaidEditorModal extends Modal {
   }
 
   private renderConnectControls(parent: HTMLElement): void {
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: this.t("editor.connector") });
+    parent.createDiv({ cls: "owen-mermaid-section-title", text: this.t("editor.connector") });
     const row = parent.createDiv({ cls: "owen-mermaid-connect-row" });
     const from = row.createEl("select", { cls: "owen-mermaid-select" });
     const to = row.createEl("select", { cls: "owen-mermaid-select" });
@@ -1796,7 +1796,7 @@ export class MermaidEditorModal extends Modal {
   }
 
   private renderCodePreview(parent: HTMLElement): void {
-    parent.createEl("div", { cls: "owen-mermaid-section-title", text: "Mermaid" });
+    parent.createDiv({ cls: "owen-mermaid-section-title", text: "Mermaid" });
     const actions = parent.createDiv({ cls: "owen-mermaid-source-actions" });
     const editButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: this.sourceEditing ? this.t("editor.cancelSourceEdit") : this.t("editor.editSource"), attr: { type: "button" } });
     const applyButton = actions.createEl("button", { cls: "owen-mermaid-action-button", text: this.t("editor.applySource"), attr: { type: "button" } });
@@ -2395,8 +2395,9 @@ export class MermaidEditorModal extends Modal {
   }
 
   private isEditableKeyTarget(target: EventTarget | null): boolean {
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLButtonElement) return true;
-    return target instanceof HTMLElement && target.isContentEditable;
+    if (!target || !("tagName" in target)) return false;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.tagName === "BUTTON") return true;
+    return "isContentEditable" in target && target.isContentEditable === true;
   }
 
   private cancelActiveTool(): boolean {
