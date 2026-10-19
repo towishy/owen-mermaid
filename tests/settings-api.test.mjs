@@ -23,6 +23,10 @@ function createHost(modern) {
   let mutations = 0;
   const controls = new Map();
   class Element {
+    dataset = {};
+    classList = { add() {}, contains() { return false; } };
+    closest() { return null; }
+    querySelector() { return null; }
     constructor(parentElement) { this.parentElement = parentElement; }
     addClass() { mutations += 1; }
     empty() { mutations += 1; }
@@ -40,6 +44,7 @@ function createHost(modern) {
       this.infoEl = this.settingEl.createDiv();
       this.nameEl = this.infoEl.createDiv();
       this.descEl = this.infoEl.createDiv();
+      this.controlEl = this.settingEl.createDiv();
     }
     setName(name) { this.name = name; return this; }
     setDesc() { return this; }

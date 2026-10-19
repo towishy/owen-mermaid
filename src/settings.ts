@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, requireApiVersion, setIcon, setTooltip } from "obsidian";
 import { createTranslator, normalizeLocalePreference, type LocalePreference } from "./i18n";
 import type OwenMermaidPlugin from "./main";
+import { styleSettingsHeading, styleSettingsRow } from "./settings-design";
 import { normalizeFilenameTemplateSetting, normalizeImageBackgroundSetting, normalizeOutputFolderSetting } from "./settingsValidation";
 import type { ExportFormat } from "./types";
 
@@ -67,6 +68,7 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
         render: (setting) => {
           this.prepareNativeRow(setting);
           setting.setHeading();
+          styleSettingsHeading(setting.settingEl, icon);
           setting.settingEl.addClass("owen-mermaid-settings-section");
           setting.infoEl.addClass("owen-mermaid-settings-section-copy");
           setting.nameEl.addClass("owen-mermaid-settings-section-title");
@@ -86,6 +88,7 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
         render: (setting) => {
           this.prepareNativeRow(setting);
           configure(setting);
+          styleSettingsRow(setting);
         },
       });
     };
@@ -282,7 +285,7 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
 
   private displayLegacy(): void {
     this.containerEl.empty();
-    this.containerEl.addClass("owen-mermaid-settings");
+    this.containerEl.addClass("owen-mermaid-settings", "owen-settings-design");
     for (const group of this.getSettingDefinitions()) {
       const section = this.addSection(this.containerEl, group.title, group.description, group.icon);
       for (const item of group.items.slice(1)) {
@@ -295,13 +298,14 @@ export class OwenMermaidSettingTab extends PluginSettingTab {
 
   private prepareNativeRow(setting: Setting): void {
     if (!requireApiVersion("1.13.0")) return;
-    this.containerEl.addClass("owen-mermaid-settings", "owen-mermaid-settings-native");
+    this.containerEl.addClass("owen-mermaid-settings", "owen-mermaid-settings-native", "owen-settings-design");
     setting.settingEl.parentElement?.addClass("owen-mermaid-settings-group");
   }
 
   private addSection(containerEl: HTMLElement, title: string, description: string, icon: string): HTMLElement {
     const group = containerEl.createEl("section", { cls: "owen-mermaid-settings-group", attr: { "aria-label": title } });
     const header = group.createDiv({ cls: "owen-mermaid-settings-section" });
+    styleSettingsHeading(header, icon);
     const glyph = header.createSpan({ cls: "owen-mermaid-section-glyph" });
     setIcon(glyph, icon);
     const copy = header.createDiv({ cls: "owen-mermaid-settings-section-copy" });
