@@ -1611,6 +1611,16 @@ text.owen-mermaid-edge-label {
   margin: 0;
 }
 
+body .modal.mod-settings .vertical-tab-content.owen-mermaid-settings-native .setting-items.owen-mermaid-settings-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
 .owen-mermaid-settings-native .setting-group-search:empty,
 .owen-mermaid-settings-native .owen-mermaid-settings-section .setting-item-control {
   display: none;
