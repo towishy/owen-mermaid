@@ -5,7 +5,7 @@ export const DEFAULT_LOCALE: Locale = "en";
 
 const en = {
   "settings.interface.section": "Interface",
-  "settings.interface.sectionDesc": "Choose the language used throughout Owen Mermaid.",
+  "settings.interface.sectionDesc": "Choose the language to use.",
   "settings.language.name": "Language",
   "settings.language.desc": "Follow Obsidian's language or override it for Owen Mermaid.",
   "settings.language.auto": "Automatic (Obsidian)",
@@ -258,7 +258,7 @@ type Catalog = { [Key in TranslationKey]: string };
 
 const ko: Catalog = {
   "settings.interface.section": "인터페이스",
-  "settings.interface.sectionDesc": "Owen Mermaid 전체에서 사용할 언어를 선택합니다.",
+  "settings.interface.sectionDesc": "사용할 언어를 선택합니다.",
   "settings.language.name": "언어",
   "settings.language.desc": "Obsidian 언어를 따르거나 Owen Mermaid에서 사용할 언어를 재정의합니다.",
   "settings.language.auto": "자동 (Obsidian)",
